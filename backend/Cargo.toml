@@ -1,0 +1,43 @@
+[package]
+name = "quartz-command"
+version = "0.1.0"
+edition = "2021"
+description = "Quartz Command backend: cloud console API (auth, organizations) over PostgreSQL"
+license = "GPL-2.0-or-later"
+
+[[bin]]
+name = "quartz-command"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Loads backend/.env on startup so `cargo run` works without a shell export
+# dance (important on Windows/PowerShell, where `export` isn't a thing).
+dotenvy = "0.15"
+anyhow = "1"
+thiserror = "1"
+jsonwebtoken = "9"
+# Argon2id password hashing for the users/admins tables.
+argon2 = "0.5"
+password-hash = "0.5"
+# PostgreSQL access. rustls to avoid an OpenSSL build dependency.
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "macros",
+    "migrate",
+] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+# Reads password from the terminal (no echo) for the seed subcommands.
+rpassword = "7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
