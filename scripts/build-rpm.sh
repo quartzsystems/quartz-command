@@ -17,7 +17,7 @@ VERSION="$(tr -d ' \r\n' < "$ROOT/VERSION")"
 STAGE="${QC_STAGE_DIR:-}"
 if [ -z "$STAGE" ]; then
   STAGE="$DIST/stage"
-  "$ROOT/scripts/stage.sh" "$STAGE"
+  bash "$ROOT/scripts/stage.sh" "$STAGE"
 fi
 STAGE="$(cd "$STAGE" && pwd)"   # rpmbuild needs an absolute path
 

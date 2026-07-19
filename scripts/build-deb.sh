@@ -18,7 +18,7 @@ ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
 STAGE="${QC_STAGE_DIR:-}"
 if [ -z "$STAGE" ]; then
   STAGE="$DIST/stage"
-  "$ROOT/scripts/stage.sh" "$STAGE"
+  bash "$ROOT/scripts/stage.sh" "$STAGE"
 fi
 
 PKG="$DIST/deb-root"

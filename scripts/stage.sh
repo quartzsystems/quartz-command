@@ -15,8 +15,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGE="${1:?usage: stage.sh <staging-dir>}"
 
-# Stamp the root VERSION file into the manifests before building.
-"$ROOT/scripts/sync-version.sh"
+# Stamp the root VERSION file into the manifests before building. Invoked via
+# bash because the repo is maintained on Windows and the scripts have no exec
+# bit recorded in git.
+bash "$ROOT/scripts/sync-version.sh"
 
 cargo build --release --manifest-path "$ROOT/backend/Cargo.toml"
 
