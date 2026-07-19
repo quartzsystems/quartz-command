@@ -1,16 +1,3 @@
-mod admin_accounts;
-mod admin_auth;
-mod admin_orgs;
-mod auth;
-mod config;
-mod db;
-mod error;
-mod models;
-mod organizations;
-mod security;
-mod seed;
-mod slug;
-
 use anyhow::Result;
 use axum::{
     middleware,
@@ -21,17 +8,13 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
-use config::Config;
-
-/// Shared state handed to every request handler.
-pub struct AppState {
-    pub config: Config,
-    pub db: PgPool,
-    /// Secret used to sign **user** session JWTs.
-    pub jwt_secret: String,
-    /// Secret used to sign **admin** session JWTs (distinct realm).
-    pub admin_jwt_secret: String,
-}
+use quartz_command::{
+    admin, console,
+    config::Config,
+    db, gateway,
+    pki::ca::{self as device_ca, DeviceCa},
+    security, seed, AppState,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -68,70 +51,107 @@ async fn main() -> Result<()> {
     let admin_jwt_secret = security::load_or_create_secret(&config.admin_jwt_secret_file);
     let listen = config.listen.clone();
 
+    // Device PKI: load (or mint) the internal CA and note the fingerprint
+    // that goes into enrollment tokens.
+    let device_ca = Arc::new(DeviceCa::load_or_create(&config.device_ca_dir)?);
+    let gateway_ca_fingerprint_hex =
+        device_ca::gateway_ca_fingerprint_hex(config.gateway_ca_file.as_deref(), &device_ca)?;
+
     let state = Arc::new(AppState {
-        config,
-        db: pool,
+        gateway_addr: config.gateway_addr.clone(),
+        gateway_ca_fingerprint_hex,
+        device_ca: device_ca.clone(),
+        db: pool.clone(),
         jwt_secret,
         admin_jwt_secret,
+        config,
     });
+
+    // Device gateway (gRPC): enrollment bootstrap + mTLS device services.
+    let grpc_state = Arc::new(gateway::GrpcState::new(
+        pool.clone(),
+        device_ca,
+        state.config.gateway_addr.clone(),
+    ));
+    {
+        let grpc_config = state.config.clone();
+        tokio::spawn(async move {
+            if let Err(e) = gateway::serve(grpc_state, &grpc_config).await {
+                tracing::error!("device gateway failed: {e:#}");
+            }
+        });
+    }
 
     // Protected user routes: require a valid `qc_session`.
     let user_protected = Router::new()
-        .route("/api/auth/me", get(auth::me))
-        .route("/api/orgs", get(organizations::list))
-        .route("/api/orgs/:organization_guid", get(organizations::get_one))
+        .route("/api/auth/me", get(console::auth::me))
+        .route("/api/orgs", get(console::organizations::list))
+        .route("/api/orgs/:organization_guid", get(console::organizations::get_one))
         .route(
             "/api/orgs/:organization_guid/subs",
-            get(organizations::list_subs).post(organizations::create_sub),
+            get(console::organizations::list_subs).post(console::organizations::create_sub),
         )
         .route(
             "/api/orgs/:organization_guid/subs/:sub_guid",
-            get(organizations::get_sub),
+            get(console::organizations::get_sub),
+        )
+        .route(
+            "/api/orgs/:organization_guid/enroll-tokens",
+            get(console::enroll_tokens::list).post(console::enroll_tokens::create),
+        )
+        .route(
+            "/api/orgs/:organization_guid/enroll-tokens/:token_id/revoke",
+            post(console::enroll_tokens::revoke),
+        )
+        .route("/api/orgs/:organization_guid/devices", get(console::devices::list))
+        .route(
+            "/api/orgs/:organization_guid/devices/:device_id/revoke",
+            post(console::devices::revoke),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            auth::require_auth,
+            console::auth::require_auth,
         ));
 
     // Protected admin routes: require a valid `qc_admin_session`.
     let admin_protected = Router::new()
-        .route("/api/admin/auth/me", get(admin_auth::me))
-        .route("/api/admin/overview", get(admin_orgs::overview))
+        .route("/api/admin/auth/me", get(admin::auth::me))
+        .route("/api/admin/overview", get(admin::orgs::overview))
         .route(
             "/api/admin/admins",
-            get(admin_accounts::list).post(admin_accounts::create),
+            get(admin::accounts::list).post(admin::accounts::create),
         )
         .route(
             "/api/admin/admins/:admin_id",
-            delete(admin_accounts::delete).patch(admin_accounts::update),
+            delete(admin::accounts::delete).patch(admin::accounts::update),
         )
-        .route("/api/admin/orgs", get(admin_orgs::list).post(admin_orgs::create))
+        .route("/api/admin/orgs", get(admin::orgs::list).post(admin::orgs::create))
         .route(
             "/api/admin/orgs/:organization_guid",
-            get(admin_orgs::get_one)
-                .patch(admin_orgs::update)
-                .delete(admin_orgs::delete),
+            get(admin::orgs::get_one)
+                .patch(admin::orgs::update)
+                .delete(admin::orgs::delete),
         )
         .route(
             "/api/admin/orgs/:organization_guid/members",
-            post(admin_orgs::add_member),
+            post(admin::orgs::add_member),
         )
         .route(
             "/api/admin/orgs/:organization_guid/members/:user_id",
-            delete(admin_orgs::remove_member).patch(admin_orgs::update_member),
+            delete(admin::orgs::remove_member).patch(admin::orgs::update_member),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            admin_auth::require_admin,
+            admin::auth::require_admin,
         ));
 
     // Public routes (login/logout for both realms) + health.
     let public = Router::new()
         .route("/api/health", get(|| async { "ok" }))
-        .route("/api/auth/login", post(auth::login))
-        .route("/api/auth/logout", post(auth::logout))
-        .route("/api/admin/auth/login", post(admin_auth::login))
-        .route("/api/admin/auth/logout", post(admin_auth::logout));
+        .route("/api/auth/login", post(console::auth::login))
+        .route("/api/auth/logout", post(console::auth::logout))
+        .route("/api/admin/auth/login", post(admin::auth::login))
+        .route("/api/admin/auth/logout", post(admin::auth::logout));
 
     let app = Router::new()
         .merge(public)

@@ -1,7 +1,7 @@
 //! Admin realm authentication (`/api/admin/auth/*`) — the `/admin/login` +
 //! `/admin` console.
 //!
-//! Structurally identical to `auth.rs` but verifies against the separate
+//! Structurally identical to `console/auth.rs` but verifies against the separate
 //! `admins` table, uses its own cookie (`qc_admin_session`) and its own JWT
 //! signing secret. Both the distinct secret and the `realm` claim ensure a user
 //! session can never satisfy admin auth (and vice versa).

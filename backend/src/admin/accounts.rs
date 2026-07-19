@@ -1,5 +1,5 @@
 //! Admin-account management for the admin console's Settings → Users tab.
-//! All routes sit behind `admin_auth::require_admin`. Two guards keep the
+//! All routes sit behind `admin::auth::require_admin`. Two guards keep the
 //! console from locking itself out: an admin can never delete or deactivate
 //! their own account, and the last active admin can never be removed.
 
