@@ -34,6 +34,40 @@ pub struct Admin {
     pub created_at: DateTime<Utc>,
 }
 
+/// An admin account as listed in the admin console's Settings → Users tab.
+/// The serializable subset of `Admin` — no password hash.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct AdminAccount {
+    pub id: Uuid,
+    pub email: String,
+    pub full_name: Option<String>,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// An organization through the admin lens — every organization, with its
+/// member headcount. Returned by the /api/admin/orgs endpoints.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct AdminOrganization {
+    pub id: Uuid,
+    pub name: String,
+    pub slug: String,
+    pub member_count: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+/// One user's membership in an organization, as shown in the admin console's
+/// member list (user identity + their role in that org).
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct OrganizationMember {
+    pub user_id: Uuid,
+    pub email: String,
+    pub full_name: Option<String>,
+    pub role: String,
+    pub is_active: bool,
+    pub joined_at: DateTime<Utc>,
+}
+
 /// One organization as seen through a member's lens — the org (whose `id` is the
 /// `organization_guid` in `/cloud/{organization_guid}`) plus the caller's role
 /// within it. Returned by the org-listing endpoints.

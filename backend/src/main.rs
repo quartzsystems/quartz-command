@@ -1,4 +1,6 @@
+mod admin_accounts;
 mod admin_auth;
+mod admin_orgs;
 mod auth;
 mod config;
 mod db;
@@ -11,7 +13,7 @@ mod seed;
 use anyhow::Result;
 use axum::{
     middleware,
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use sqlx::PgPool;
@@ -85,6 +87,30 @@ async fn main() -> Result<()> {
     // Protected admin routes: require a valid `qc_admin_session`.
     let admin_protected = Router::new()
         .route("/api/admin/auth/me", get(admin_auth::me))
+        .route("/api/admin/overview", get(admin_orgs::overview))
+        .route(
+            "/api/admin/admins",
+            get(admin_accounts::list).post(admin_accounts::create),
+        )
+        .route(
+            "/api/admin/admins/:admin_id",
+            delete(admin_accounts::delete).patch(admin_accounts::update),
+        )
+        .route("/api/admin/orgs", get(admin_orgs::list).post(admin_orgs::create))
+        .route(
+            "/api/admin/orgs/:organization_guid",
+            get(admin_orgs::get_one)
+                .patch(admin_orgs::update)
+                .delete(admin_orgs::delete),
+        )
+        .route(
+            "/api/admin/orgs/:organization_guid/members",
+            post(admin_orgs::add_member),
+        )
+        .route(
+            "/api/admin/orgs/:organization_guid/members/:user_id",
+            delete(admin_orgs::remove_member).patch(admin_orgs::update_member),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             admin_auth::require_admin,

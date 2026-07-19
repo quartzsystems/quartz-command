@@ -3,15 +3,19 @@
 /backend/data
 /backend/.env
 
-# Node / Next.js
-/frontend/node_modules
-/frontend/.next
-/frontend/out
-/frontend/next-env.d.ts.timestamp
+# Node / Next.js — bare patterns so they apply anywhere in the tree
+node_modules/
+.next/
+out/
+next-env.d.ts.timestamp
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
 
 # Env
 .env
 .env.local
+.env.*.local
 
 # OS
 .DS_Store

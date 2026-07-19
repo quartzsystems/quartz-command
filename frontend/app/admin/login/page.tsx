@@ -10,7 +10,7 @@ export default function AdminLoginPage() {
   return (
     <LoginForm
       client={adminApi}
-      title="Command Admin"
+      title="Quartz Command Admin"
       caption="Restricted — platform administrators only."
       successPath="/admin"
     />

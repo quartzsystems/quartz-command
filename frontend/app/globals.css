@@ -145,6 +145,152 @@ body {
 .badge-info { background: var(--qz-info-soft);    border-color: color-mix(in oklab, var(--qz-info) 38%, transparent);    color: var(--qz-info); }
 .badge-muted { background: var(--qz-ink-3); border-color: var(--qz-border); color: var(--qz-fg-3); }
 
+/* --- Table (ported from QuartzFire) --- */
+.qz-table { width: 100%; border-collapse: collapse; }
+.qz-table th {
+  text-align: left;
+  padding: 10px 14px;
+  font-family: var(--qz-font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--qz-fg-4);
+  border-bottom: 1px solid var(--qz-border);
+  background: var(--qz-surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.qz-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--qz-divider);
+  font-size: 13px;
+  color: var(--qz-fg-2);
+}
+.qz-table tr { cursor: pointer; }
+.qz-table tbody tr:hover td { background: color-mix(in oklab, white 4%, var(--qz-surface)); }
+.qz-table tbody tr.selected td { background: var(--qz-accent-soft); }
+.qz-table td.mono { font-family: var(--qz-font-mono); color: var(--qz-fg-1); }
+
+/* Draggable column-width handle at a header-cell boundary. The ::after line is
+   the always-visible "|" affordance; the span itself is a wider hit target. */
+.qz-col-resize {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  width: 11px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+  user-select: none;
+  touch-action: none;
+}
+.qz-col-resize::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 55%;
+  width: 1px;
+  background: var(--qz-border-strong);
+  transition: background 0.12s ease, width 0.12s ease;
+}
+.qz-col-resize:hover::after,
+.qz-col-resize.active::after {
+  left: 4.5px;
+  width: 2px;
+  background: var(--qz-accent);
+}
+
+/* --- Dark checkbox --- */
+.qz-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border: 1px solid var(--qz-border-strong);
+  border-radius: 4px;
+  background: var(--qz-input-bg);
+  cursor: pointer;
+  position: relative;
+  transition: background 120ms, border-color 120ms;
+  vertical-align: middle;
+}
+.qz-check:hover { border-color: var(--qz-fg-4); }
+.qz-check:checked,
+.qz-check:indeterminate {
+  background: var(--qz-accent);
+  border-color: var(--qz-accent);
+}
+.qz-check:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--qz-fg-on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.qz-check:indeterminate::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 6px;
+  width: 7px;
+  height: 2px;
+  background: var(--qz-fg-on-accent);
+}
+
+/* --- KPI --- */
+.kpi-card {
+  background: var(--qz-surface);
+  border: 1px solid var(--qz-border);
+  border-radius: 10px;
+  box-shadow: var(--qz-inset-line);
+  padding: 18px;
+}
+.kpi-label {
+  font-family: var(--qz-font-mono);
+  font-size: 10px;
+  color: var(--qz-fg-4);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.kpi-value {
+  font-family: var(--qz-font-mono);
+  font-weight: 600;
+  font-size: 32px;
+  color: var(--qz-fg-1);
+  margin-top: 6px;
+  line-height: 1;
+}
+
+/* --- Toast --- */
+@keyframes drawer-in {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+.toast {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 80;
+  background: var(--qz-surface-raised);
+  border: 1px solid var(--qz-border);
+  border-left: 3px solid var(--qz-accent);
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+  font-size: 13px;
+  color: var(--qz-fg-1);
+  animation: drawer-in 220ms var(--qz-ease-out);
+}
+
 /* --- Scrollbars --- */
 ::-webkit-scrollbar { width: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--qz-ink-5); border-radius: 999px; }
