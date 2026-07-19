@@ -32,6 +32,41 @@ Users belong to many organizations via the `memberships` table (a role per org).
 `/cloud` lists the signed-in user's orgs (or redirects when there's exactly one);
 `/cloud/{organization_guid}` renders an org the user is a member of (403 otherwise).
 
+## Install
+
+One-liner for Debian/Ubuntu and Fedora/RHEL-family servers (needs systemd):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/quartzsystems/quartz-command/main/scripts/install.sh | sudo bash
+```
+
+The script installs PostgreSQL from the distro repos, creates the `quartz`
+role and `quartz_command` database with a random password, installs the latest
+released `.deb`/`.rpm`, writes `/etc/quartz-command/backend.env`, seeds a
+default admin (credentials are printed once at the end), and starts the
+`quartz-command-backend` and `quartz-command-frontend` services. Pin a release
+with `QC_VERSION=x.y.z`; re-running upgrades the package without touching an
+existing database or config.
+
+The console is served at **`https://<host>/`** — the installer puts nginx on
+:443 as a TLS terminator (self-signed certificate, so the browser warns once)
+in front of the loopback-only frontend, and opens 443 in firewalld/ufw when
+active. To use a real certificate, replace
+`/etc/quartz-command/tls/{cert,key}.pem` and `systemctl reload nginx`.
+
+### Update
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/quartzsystems/quartz-command/main/scripts/update.sh | sudo bash
+```
+
+Upgrades the package to the latest release without touching the database or
+your edited config files, restarts the backend first (migrations run on
+startup) and verifies `/api/health` before restarting the frontend. On
+failure it prints a pinned rollback one-liner. `QC_VERSION=x.y.z` targets a
+specific release; add `QC_ALLOW_DOWNGRADE=1` to roll back (schema migrations
+are forward-only — don't roll back across a release that migrated).
+
 ## Development
 
 1. **Database** — run PostgreSQL yourself (local install, managed service, etc.),
