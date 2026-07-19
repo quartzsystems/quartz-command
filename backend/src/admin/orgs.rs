@@ -1,5 +1,5 @@
 //! Organization + user management for the admin console. All routes sit
-//! behind `admin_auth::require_admin`, so callers are platform administrators;
+//! behind `admin::auth::require_admin`, so callers are platform administrators;
 //! there is no tenant scoping here — admins see every organization.
 
 use axum::{

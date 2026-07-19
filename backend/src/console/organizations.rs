@@ -22,7 +22,8 @@ fn caller_id(claims: &Claims) -> Result<Uuid> {
 /// The organization, but only if `uid` is a member — the membership check every
 /// sub-organization route hangs off. A non-member gets 403 (real tenant
 /// isolation on the server), never a leak of whether the org exists.
-async fn member_org(
+/// pub(crate): the enrollment-token and device routes gate on it too.
+pub(crate) async fn member_org(
     state: &Arc<AppState>,
     organization_guid: Uuid,
     uid: Uuid,

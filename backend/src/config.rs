@@ -33,6 +33,27 @@ pub struct Config {
     /// come up with a usable `/admin/login` without a manual seed step.
     pub default_admin_email: Option<String>,
     pub default_admin_password: Option<String>,
+
+    /// Address the device gateway (gRPC) binds to.
+    pub grpc_listen: String,
+
+    /// Public `host:port` devices reach the gateway at — embedded in
+    /// enrollment tokens and returned as `assigned_gateway`. Defaults to
+    /// `grpc_listen` (fine for local dev only).
+    pub gateway_addr: String,
+
+    /// Directory holding the device CA key + cert (generated on first start).
+    pub device_ca_dir: PathBuf,
+
+    /// Gateway TLS server cert/key (PEM). Set both for TLS with optional
+    /// client certs; leave both unset for a plaintext dev listener.
+    pub grpc_tls_cert_file: Option<PathBuf>,
+    pub grpc_tls_key_file: Option<PathBuf>,
+
+    /// Cert (PEM or DER) of the CA that issued the gateway's TLS cert; its
+    /// SHA-256 goes into enrollment tokens. Defaults to the device CA cert
+    /// (correct for self-hosted setups where the gateway cert is internal).
+    pub gateway_ca_file: Option<PathBuf>,
 }
 
 impl Config {
@@ -64,6 +85,17 @@ impl Config {
         let default_admin_email = non_empty("QC_DEFAULT_ADMIN_EMAIL");
         let default_admin_password = non_empty("QC_DEFAULT_ADMIN_PASSWORD");
 
+        let grpc_listen =
+            std::env::var("QC_GRPC_LISTEN").unwrap_or_else(|_| "127.0.0.1:8443".to_string());
+        let gateway_addr =
+            std::env::var("QC_GATEWAY_ADDR").unwrap_or_else(|_| grpc_listen.clone());
+        let device_ca_dir = std::env::var("QC_DEVICE_CA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("./data/device-ca"));
+        let grpc_tls_cert_file = non_empty("QC_GRPC_TLS_CERT_FILE").map(PathBuf::from);
+        let grpc_tls_key_file = non_empty("QC_GRPC_TLS_KEY_FILE").map(PathBuf::from);
+        let gateway_ca_file = non_empty("QC_GATEWAY_CA_FILE").map(PathBuf::from);
+
         Ok(Self {
             database_url,
             listen,
@@ -73,6 +105,12 @@ impl Config {
             session_hours,
             default_admin_email,
             default_admin_password,
+            grpc_listen,
+            gateway_addr,
+            device_ca_dir,
+            grpc_tls_cert_file,
+            grpc_tls_key_file,
+            gateway_ca_file,
         })
     }
 }

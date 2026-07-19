@@ -80,6 +80,37 @@ pub struct MemberOrganization {
     pub created_at: DateTime<Utc>,
 }
 
+/// Enrollment-token metadata as listed in the console. Never carries the
+/// secret — only its Argon2id hash exists server-side, and the full token
+/// string is disclosed exactly once at creation.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct EnrollmentTokenMeta {
+    pub token_id: String,
+    pub label: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub max_uses: Option<i32>,
+    pub use_count: i32,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub created_by_email: Option<String>,
+}
+
+/// An enrolled QuartzFire device as shown in the Inventory section. The raw
+/// public key stays server-side; the device_id already commits to it.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct Device {
+    pub device_id: String,
+    pub state: String,
+    pub hostname: Option<String>,
+    pub qf_version: Option<String>,
+    pub cert_serial: Option<String>,
+    pub cert_not_after: Option<DateTime<Utc>>,
+    pub enrolled_at: Option<DateTime<Utc>>,
+    pub enrolled_via_token: Option<String>,
+    pub last_seen_at: Option<DateTime<Utc>>,
+    pub last_seen_ip: Option<String>,
+}
+
 /// A sub-organization nested under a parent organization (cloud console's
 /// Organization Manager). Access derives from membership in the parent, so
 /// there is no per-caller role here.
