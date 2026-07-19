@@ -1,94 +1,112 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
-import { getOrganization, ApiError, type MemberOrganization } from "@/lib/api";
+import { Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/Button";
+import { useCloudOrg } from "@/components/CloudShell";
 
-/// Per-organization dashboard shell at /cloud/{organization_guid}. Fetches the
-/// org through the membership-enforced endpoint (403 → not a member), so this
-/// page can only render for an org the user actually belongs to. Real dashboard
-/// content is a follow-up.
-export default function OrgDashboardPage() {
-  const params = useParams<{ organization_guid: string }>();
-  const guid = params.organization_guid;
+/// The org Overview — the Dashboard landing page of the cloud console. Sums up
+/// the organization and lists its sub-organizations; the shell (sidebar +)
+/// owns creation, exposed here for the empty state.
+export default function OverviewPage() {
+  const { orgGuid, org, subs, openCreateSub } = useCloudOrg();
   const router = useRouter();
-  const [org, setOrg] = useState<MemberOrganization | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    getOrganization(guid)
-      .then((o) => !cancelled && setOrg(o))
-      .catch((err) => {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 403) {
-          setError("You don't have access to this organization.");
-        } else {
-          setError(err?.message ?? "Failed to load organization.");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [guid]);
 
   return (
-    <div className="min-h-screen p-6 flex flex-col gap-6">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <img src="/logo-mark.png" alt="Quartz Systems" className="w-8 h-8" />
-          <div className="flex flex-col">
-            <h1 className="text-[18px] font-bold text-[var(--qz-fg-1)] m-0">
-              {org ? org.name : "Organization"}
-            </h1>
-            <span
-              className="text-[11px]"
-              style={{ color: "var(--qz-fg-4)", fontFamily: "var(--qz-font-mono)" }}
-            >
-              {guid}
-            </span>
-          </div>
+    <div className="p-6 flex flex-col gap-6">
+      <header className="flex items-end justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1
+            className="text-[20px] font-bold text-[var(--qz-fg-1)] m-0"
+            style={{ letterSpacing: "-0.02em" }}
+          >
+            Overview
+          </h1>
+          <p className="text-[13px] m-0" style={{ color: "var(--qz-fg-3)" }}>
+            {org ? org.name : "Loading…"}
+            {org && (
+              <span
+                className="ml-2 text-[11px]"
+                style={{ fontFamily: "var(--qz-font-mono)", color: "var(--qz-fg-4)" }}
+              >
+                {org.slug}
+              </span>
+            )}
+          </p>
         </div>
-        <Link
-          href="/cloud"
-          className="text-[12px] no-underline"
-          style={{ color: "var(--qz-fg-4)" }}
-        >
-          ← All organizations
-        </Link>
+        <Button icon={Plus} onClick={openCreateSub}>
+          New sub-organization
+        </Button>
       </header>
 
-      {error && (
-        <div className="surface p-6">
-          <p className="text-[13px] m-0" style={{ color: "var(--qz-danger)" }}>
-            {error}
-          </p>
-          <button
-            onClick={() => router.replace("/cloud")}
-            className="mt-3 rounded-md px-3 py-2 text-[12px] font-semibold cursor-pointer border-0"
-            style={{ background: "var(--qz-accent)", color: "var(--qz-fg-on-accent)" }}
-          >
-            Back to organizations
-          </button>
+      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+        <div className="kpi-card">
+          <div className="kpi-label">Sub-organizations</div>
+          <div className="kpi-value">{subs === null ? "…" : subs.length}</div>
         </div>
-      )}
-
-      {!error && (
-        <div className="surface p-8 flex flex-col gap-2">
-          <span className="badge badge-info" style={{ alignSelf: "flex-start" }}>
+        <div className="kpi-card">
+          <div className="kpi-label">Your role</div>
+          <div className="kpi-value" style={{ fontSize: 22, textTransform: "capitalize" }}>
             {org ? org.role : "…"}
-          </span>
-          <h2 className="text-[16px] font-semibold text-[var(--qz-fg-1)] m-0 mt-2">
-            Cloud dashboard
-          </h2>
-          <p className="text-[13px] m-0" style={{ color: "var(--qz-fg-3)" }}>
-            This is the dashboard shell for{" "}
-            <strong style={{ color: "var(--qz-fg-1)" }}>{org?.name ?? "this organization"}</strong>.
-            Organization-scoped content will live here.
-          </p>
+          </div>
         </div>
-      )}
+        <div className="kpi-card">
+          <div className="kpi-label">Created</div>
+          <div className="kpi-value" style={{ fontSize: 22 }}>
+            {org ? new Date(org.created_at).toLocaleDateString() : "…"}
+          </div>
+        </div>
+      </div>
+
+      <section className="surface overflow-hidden">
+        <div
+          className="flex items-center justify-between px-4 py-3"
+          style={{ borderBottom: "1px solid var(--qz-border)" }}
+        >
+          <h2 className="text-[14px] font-semibold text-[var(--qz-fg-1)] m-0">
+            Sub-organizations
+          </h2>
+        </div>
+
+        {subs !== null && subs.length === 0 ? (
+          <div className="p-8 flex flex-col items-center gap-3">
+            <p className="text-[13px] m-0 text-center" style={{ color: "var(--qz-fg-3)" }}>
+              No sub-organizations yet. Create one to segment this organization.
+            </p>
+            <Button icon={Plus} kind="secondary" onClick={openCreateSub}>
+              Create sub-organization
+            </Button>
+          </div>
+        ) : (
+          <table className="qz-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Slug</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(subs ?? []).map((sub) => (
+                <tr key={sub.id} onClick={() => router.push(`/cloud/${orgGuid}/orgs/${sub.id}`)}>
+                  <td className="mono">{sub.name}</td>
+                  <td style={{ fontFamily: "var(--qz-font-mono)", color: "var(--qz-fg-3)" }}>
+                    {sub.slug}
+                  </td>
+                  <td>{new Date(sub.created_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+              {subs === null && (
+                <tr>
+                  <td colSpan={3} style={{ color: "var(--qz-fg-4)" }}>
+                    Loading…
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+      </section>
     </div>
   );
 }

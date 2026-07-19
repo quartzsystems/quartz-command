@@ -31,3 +31,30 @@ export function listOrganizations(): Promise<MemberOrganization[]> {
 export function getOrganization(guid: string): Promise<MemberOrganization> {
   return apiFetch<MemberOrganization>(`/orgs/${guid}`);
 }
+
+/** A sub-organization nested under a parent org (no per-caller role — access
+ *  derives from membership in the parent). */
+export interface SubOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+}
+
+/** Sub-organizations under an organization the user belongs to. */
+export function listSubOrganizations(guid: string): Promise<SubOrganization[]> {
+  return apiFetch<SubOrganization[]>(`/orgs/${guid}/subs`);
+}
+
+/** Create a sub-organization; the slug is derived server-side from the name. */
+export function createSubOrganization(guid: string, name: string): Promise<SubOrganization> {
+  return apiFetch<SubOrganization>(`/orgs/${guid}/subs`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+/** One sub-organization under the given parent (404 if not nested there). */
+export function getSubOrganization(guid: string, subGuid: string): Promise<SubOrganization> {
+  return apiFetch<SubOrganization>(`/orgs/${guid}/subs/${subGuid}`);
+}

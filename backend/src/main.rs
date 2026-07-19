@@ -9,6 +9,7 @@ mod models;
 mod organizations;
 mod security;
 mod seed;
+mod slug;
 
 use anyhow::Result;
 use axum::{
@@ -79,6 +80,14 @@ async fn main() -> Result<()> {
         .route("/api/auth/me", get(auth::me))
         .route("/api/orgs", get(organizations::list))
         .route("/api/orgs/:organization_guid", get(organizations::get_one))
+        .route(
+            "/api/orgs/:organization_guid/subs",
+            get(organizations::list_subs).post(organizations::create_sub),
+        )
+        .route(
+            "/api/orgs/:organization_guid/subs/:sub_guid",
+            get(organizations::get_sub),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_auth,

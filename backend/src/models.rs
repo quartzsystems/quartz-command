@@ -79,3 +79,14 @@ pub struct MemberOrganization {
     pub role: String,
     pub created_at: DateTime<Utc>,
 }
+
+/// A sub-organization nested under a parent organization (cloud console's
+/// Organization Manager). Access derives from membership in the parent, so
+/// there is no per-caller role here.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct SubOrganization {
+    pub id: Uuid,
+    pub name: String,
+    pub slug: String,
+    pub created_at: DateTime<Utc>,
+}
