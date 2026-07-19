@@ -1,0 +1,27 @@
+#!/bin/sh
+set -e
+
+if ! getent passwd quartz-command >/dev/null; then
+    useradd --system --user-group \
+        --home-dir /var/lib/quartz-command --no-create-home \
+        --shell /usr/sbin/nologin quartz-command
+fi
+
+chown quartz-command:quartz-command /var/lib/quartz-command
+chmod 0750 /var/lib/quartz-command
+# The backend env file holds the database password; keep it root-owned but
+# readable by the service group.
+chgrp quartz-command /etc/quartz-command/backend.env
+chmod 0640 /etc/quartz-command/backend.env
+
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+if [ "$1" = "configure" ] && [ -z "${2:-}" ]; then
+    echo "quartz-command installed."
+    echo "  1. Edit /etc/quartz-command/backend.env (DATABASE_URL at minimum)."
+    echo "  2. systemctl enable --now quartz-command-backend quartz-command-frontend"
+fi
+
+exit 0

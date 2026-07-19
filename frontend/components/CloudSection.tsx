@@ -1,11 +1,16 @@
 "use client";
 
+import { useParams } from "next/navigation";
 import { useCloudOrg } from "@/components/CloudShell";
 
 /// Placeholder body for the top-header sections (Monitor, Configure,
-/// Inventory, Administration) until each grows real content.
+/// Inventory, Administration) until each grows real content. Rendered both at
+/// the organization level and scoped under a sub-organization.
 export function CloudSection({ title, blurb }: { title: string; blurb: string }) {
-  const { org } = useCloudOrg();
+  const { org, subs } = useCloudOrg();
+  const params = useParams<{ sub_guid?: string }>();
+  const sub = params.sub_guid ? subs?.find((s) => s.id === params.sub_guid) : undefined;
+  const scopeName = sub ? `${sub.name} · ${org?.name ?? ""}` : org?.name;
 
   return (
     <div className="p-6 flex flex-col gap-6">
@@ -17,7 +22,7 @@ export function CloudSection({ title, blurb }: { title: string; blurb: string })
           {title}
         </h1>
         <p className="text-[13px] m-0" style={{ color: "var(--qz-fg-3)" }}>
-          {org ? org.name : "Loading…"}
+          {scopeName ?? "Loading…"}
         </p>
       </header>
 

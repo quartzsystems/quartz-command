@@ -1,3 +1,6 @@
+# Packaging output (scripts/build-deb.sh, scripts/build-rpm.sh)
+/dist
+
 # Rust
 /backend/target
 /backend/data

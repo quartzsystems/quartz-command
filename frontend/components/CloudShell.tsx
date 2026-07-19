@@ -14,7 +14,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { Toast } from "@/components/dashboard/Toast";
 import { SubOrgFormModal } from "@/components/SubOrgFormModal";
@@ -82,6 +82,12 @@ export function CloudShell({
   const router = useRouter();
   const base = `/cloud/${orgGuid}`;
 
+  // When a sub-organization is selected in the sidebar, the top tabs scope to
+  // it: they navigate within /cloud/{org}/orgs/{sub} instead of the parent.
+  const routeParams = useParams<{ sub_guid?: string }>();
+  const subGuid = routeParams.sub_guid;
+  const tabBase = subGuid ? `${base}/orgs/${subGuid}` : base;
+
   const [user, setUser] = useState<AuthUserInfo | null>(null);
   const [org, setOrg] = useState<MemberOrganization | null>(null);
   const [subs, setSubs] = useState<SubOrganization[] | null>(null);
@@ -137,8 +143,8 @@ export function CloudShell({
 
   const headerActive = (item: HeaderItem) =>
     item.segment === ""
-      ? !HEADER_ITEMS.some((h) => h.segment !== "" && pathname.startsWith(base + h.segment))
-      : pathname.startsWith(base + item.segment);
+      ? !HEADER_ITEMS.some((h) => h.segment !== "" && pathname.startsWith(tabBase + h.segment))
+      : pathname.startsWith(tabBase + item.segment);
 
   const sideItemClass = (active: boolean) =>
     [
@@ -209,7 +215,7 @@ export function CloudShell({
               return (
                 <Link
                   key={item.id}
-                  href={base + item.segment}
+                  href={tabBase + item.segment}
                   className={[
                     "flex items-center gap-[7px] px-[14px] text-[13px] font-medium no-underline transition-colors duration-[120ms]",
                     active

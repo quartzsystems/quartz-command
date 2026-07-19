@@ -1,0 +1,22 @@
+[Unit]
+Description=Quartz Command web frontend (Next.js)
+Documentation=https://github.com/zagdrath/quartz-command
+After=network-online.target quartz-command-backend.service
+Wants=network-online.target
+
+[Service]
+User=quartz-command
+Group=quartz-command
+EnvironmentFile=/etc/quartz-command/frontend.env
+WorkingDirectory=/usr/lib/quartz-command/web/frontend
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

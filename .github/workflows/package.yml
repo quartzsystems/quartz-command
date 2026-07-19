@@ -1,0 +1,70 @@
+name: Package
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "scripts/**"
+      - ".github/workflows/package.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write # attach packages to the release on tag pushes
+
+jobs:
+  package:
+    name: Build deb and rpm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install rpm tooling
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      # Stage once so the compile is shared by both package builds.
+      - name: Build and stage
+        run: bash scripts/stage.sh dist/stage
+
+      - name: Build deb
+        run: QC_STAGE_DIR=dist/stage bash scripts/build-deb.sh
+
+      - name: Build rpm
+        run: QC_STAGE_DIR=dist/stage bash scripts/build-rpm.sh
+
+      - name: Sanity-check package metadata
+        run: |
+          dpkg-deb --info dist/*.deb
+          rpm -qip dist/*.rpm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            dist/*.deb
+            dist/*.rpm
+          if-no-files-found: error
+
+      - name: Attach packages to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm \
+            --repo "$GITHUB_REPOSITORY" --clobber

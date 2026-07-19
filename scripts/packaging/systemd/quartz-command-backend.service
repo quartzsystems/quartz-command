@@ -1,0 +1,25 @@
+[Unit]
+Description=Quartz Command backend API
+Documentation=https://github.com/zagdrath/quartz-command
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=quartz-command
+Group=quartz-command
+EnvironmentFile=/etc/quartz-command/backend.env
+WorkingDirectory=/var/lib/quartz-command
+ExecStart=/usr/bin/quartz-command
+Restart=on-failure
+RestartSec=5
+
+# Hardening: the backend only needs to read config and write its state dir
+# (JWT secret files are generated there on first start).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/quartz-command
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
