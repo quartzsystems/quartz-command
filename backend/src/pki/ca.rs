@@ -42,6 +42,13 @@ pub struct IssuedCert {
     pub not_after: DateTime<Utc>,
 }
 
+/// TLS identity (PEM cert + key) for the gateway listener, issued by the
+/// device CA. Held in memory only — see [`DeviceCa::issue_gateway_cert`].
+pub struct GatewayTlsIdentity {
+    pub cert_pem: String,
+    pub key_pem: String,
+}
+
 impl DeviceCa {
     /// Load the CA from `dir`, generating and persisting a new one on first
     /// start. Fails (rather than silently regenerating) if the files exist
@@ -122,6 +129,47 @@ impl DeviceCa {
     /// SHA-256 fingerprint of the CA cert DER, lowercase hex.
     pub fn fingerprint_hex(&self) -> String {
         hex(&Sha256::digest(&self.ca_cert_der))
+    }
+
+    /// Issue a TLS server certificate for the gateway listener, covering
+    /// `host` (DNS name or IP literal) plus loopback for on-box checks.
+    ///
+    /// Reissued on every startup and never persisted: devices trust the CA
+    /// fingerprint pinned in their enrollment token, not the leaf, so a fresh
+    /// key per boot costs nothing and keeps the private key off disk. Validity
+    /// is kept well inside the CA's own 10-year window.
+    pub fn issue_gateway_cert(&self, host: &str) -> Result<GatewayTlsIdentity> {
+        let key = KeyPair::generate().map_err(|e| anyhow!("generating gateway TLS key: {e}"))?;
+
+        let mut params = CertificateParams::default();
+        let mut dn = DistinguishedName::new();
+        dn.push(DnType::OrganizationName, "Quartz Command");
+        dn.push(DnType::CommonName, host);
+        params.distinguished_name = dn;
+        params.is_ca = IsCa::ExplicitNoCa;
+        params.serial_number = Some(random_serial());
+        params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+        params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+        let now = ::time::OffsetDateTime::now_utc();
+        params.not_before = now - ::time::Duration::minutes(5);
+        params.not_after = now + ::time::Duration::days(730);
+
+        let mut sans = vec![san_for_host(host)?];
+        for local in ["localhost", "127.0.0.1"] {
+            if host != local {
+                sans.push(san_for_host(local)?);
+            }
+        }
+        params.subject_alt_names = sans;
+
+        let cert = params
+            .signed_by(&key, &self.issuer, &self.key)
+            .map_err(|e| anyhow!("signing gateway TLS cert: {e}"))?;
+
+        Ok(GatewayTlsIdentity {
+            cert_pem: cert.pem(),
+            key_pem: key.serialize_pem(),
+        })
     }
 
     /// Validate a device CSR and issue a 30-day client certificate.
@@ -276,6 +324,17 @@ pub fn gateway_ca_fingerprint_hex(
         bytes
     };
     Ok(hex(&Sha256::digest(&der)))
+}
+
+/// SAN entry for a host that may be a DNS name or an IP literal.
+fn san_for_host(host: &str) -> Result<SanType> {
+    Ok(match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => SanType::IpAddress(ip),
+        Err(_) => SanType::DnsName(
+            rcgen::Ia5String::try_from(host)
+                .map_err(|e| anyhow!("invalid gateway host {host:?}: {e}"))?,
+        ),
+    })
 }
 
 /// Positive random 16-byte certificate serial.

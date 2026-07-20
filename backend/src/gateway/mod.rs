@@ -1,10 +1,13 @@
 //! Device gateway: shared state + server startup for the gRPC services.
 //!
-//! TLS model: when `QC_GRPC_TLS_CERT_FILE`/`QC_GRPC_TLS_KEY_FILE` are set the
-//! listener terminates TLS itself, trusting the device CA for client certs
-//! with client auth *optional* — EnrollmentService is the bootstrap path and
-//! must work without a client cert, while DeviceService rejects any request
-//! that didn't present one. Without the env vars the listener is plaintext
+//! TLS model: the listener terminates TLS itself, trusting the device CA for
+//! client certs with client auth *optional* — EnrollmentService is the
+//! bootstrap path and must work without a client cert, while DeviceService
+//! rejects any request that didn't present one. The server identity comes
+//! from `QC_GRPC_TLS_CERT_FILE`/`QC_GRPC_TLS_KEY_FILE` when set; otherwise a
+//! cert covering the advertised gateway host is auto-issued from the device
+//! CA at startup (devices verify it via the CA fingerprint pinned in their
+//! enrollment token). `QC_GATEWAY_TLS=off` forces a plaintext listener
 //! (local dev only; DeviceService is then effectively disabled).
 
 pub mod clone_detect;
@@ -37,8 +40,9 @@ const ENROLL_RATE_WINDOW: Duration = Duration::from_secs(60);
 pub struct GrpcState {
     pub db: PgPool,
     pub device_ca: Arc<DeviceCa>,
-    /// `host:port` devices should use for their control channel (and the
-    /// gateway field embedded in enrollment tokens).
+    /// `host:port` devices should use for their control channel, as effective
+    /// at startup (admin settings override included). Enrollment re-reads the
+    /// setting per request and only falls back to this snapshot.
     pub gateway_addr: String,
     pub enroll_limiter: RateLimiter,
     pub clone_detector: CloneDetector,
@@ -61,6 +65,20 @@ impl GrpcState {
             clone_detector: CloneDetector::new(),
             registry,
         }
+    }
+}
+
+/// Host half of a `host:port` address (`[v6]:port` brackets stripped; a bare
+/// host with no port passes through).
+fn host_of(addr: &str) -> &str {
+    if let Some(rest) = addr.strip_prefix('[') {
+        if let Some(end) = rest.find(']') {
+            return &rest[..end];
+        }
+    }
+    match addr.rsplit_once(':') {
+        Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => host,
+        _ => addr,
     }
 }
 
@@ -88,10 +106,30 @@ pub async fn serve(state: Arc<GrpcState>, config: &Config) -> Result<()> {
             builder = builder.tls_config(tls).context("configuring gateway TLS")?;
             tracing::info!("device gateway listening on {addr} (TLS, optional client certs)");
         }
-        (None, None) => {
+        (None, None) if config.gateway_tls_off => {
             tracing::warn!(
-                "device gateway listening on {addr} WITHOUT TLS — dev only; \
-                 mTLS device services will reject all calls"
+                "device gateway listening on {addr} WITHOUT TLS (QC_GATEWAY_TLS=off) — dev \
+                 only; mTLS device services will reject all calls"
+            );
+        }
+        (None, None) => {
+            // The advertised address (settings override included) is what
+            // devices dial, so that host is what the cert must cover.
+            let host = host_of(&state.gateway_addr);
+            let identity = state.device_ca.issue_gateway_cert(host)?;
+            let tls = tonic::transport::ServerTlsConfig::new()
+                .identity(tonic::transport::Identity::from_pem(
+                    identity.cert_pem,
+                    identity.key_pem,
+                ))
+                .client_ca_root(tonic::transport::Certificate::from_pem(
+                    state.device_ca.ca_cert_pem(),
+                ))
+                .client_auth_optional(true);
+            builder = builder.tls_config(tls).context("configuring gateway TLS")?;
+            tracing::info!(
+                "device gateway listening on {addr} (TLS, auto-issued device-CA cert \
+                 for {host}, optional client certs)"
             );
         }
         _ => anyhow::bail!("QC_GRPC_TLS_CERT_FILE and QC_GRPC_TLS_KEY_FILE must be set together"),

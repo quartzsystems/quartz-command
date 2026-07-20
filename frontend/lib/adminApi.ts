@@ -159,3 +159,25 @@ export function updateAdmin(
 export function deleteAdmin(adminId: string): Promise<void> {
   return apiFetch<void>(`/admin/admins/${adminId}`, { method: "DELETE" });
 }
+
+/** Instance-wide server settings (Settings → Server). */
+export interface ServerSettings {
+  /** Effective public gateway address devices dial (override, else default). */
+  gateway_addr: string;
+  /** Admin-set override, or null when running on the env-derived default. */
+  gateway_addr_override: string | null;
+  /** The env-derived default (QC_GATEWAY_ADDR / QC_GRPC_LISTEN). */
+  gateway_addr_default: string;
+}
+
+export function getServerSettings(): Promise<ServerSettings> {
+  return apiFetch<ServerSettings>("/admin/settings");
+}
+
+/** Set the gateway address override; null resets to the env-derived default. */
+export function updateServerSettings(gatewayAddr: string | null): Promise<ServerSettings> {
+  return apiFetch<ServerSettings>("/admin/settings", {
+    method: "PUT",
+    body: JSON.stringify({ gateway_addr: gatewayAddr }),
+  });
+}

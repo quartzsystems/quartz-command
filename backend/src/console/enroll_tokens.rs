@@ -144,8 +144,11 @@ pub async fn create(
     .fetch_one(&state.db)
     .await?;
 
+    // Read live so an admin's Settings → Server change applies to the very
+    // next token without a backend restart.
+    let gateway = crate::settings::gateway_addr(&state.db, &state.config).await?;
     let token = compose_token_string(
-        &state.gateway_addr,
+        &gateway,
         organization_guid,
         &token_id,
         &secret,

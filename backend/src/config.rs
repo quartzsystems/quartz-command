@@ -45,10 +45,17 @@ pub struct Config {
     /// Directory holding the device CA key + cert (generated on first start).
     pub device_ca_dir: PathBuf,
 
-    /// Gateway TLS server cert/key (PEM). Set both for TLS with optional
-    /// client certs; leave both unset for a plaintext dev listener.
+    /// Gateway TLS server cert/key (PEM). Set both to serve a cert of your
+    /// own; leave both unset and the gateway auto-issues a server cert from
+    /// the device CA at startup (devices verify it via the CA fingerprint
+    /// pinned in their enrollment token).
     pub grpc_tls_cert_file: Option<PathBuf>,
     pub grpc_tls_key_file: Option<PathBuf>,
+
+    /// `QC_GATEWAY_TLS=off` — serve the gateway in plaintext instead of
+    /// auto-issuing a cert. Local dev only: mTLS device services reject all
+    /// calls without TLS.
+    pub gateway_tls_off: bool,
 
     /// Cert (PEM or DER) of the CA that issued the gateway's TLS cert; its
     /// SHA-256 goes into enrollment tokens. Defaults to the device CA cert
@@ -94,6 +101,9 @@ impl Config {
             .unwrap_or_else(|_| PathBuf::from("./data/device-ca"));
         let grpc_tls_cert_file = non_empty("QC_GRPC_TLS_CERT_FILE").map(PathBuf::from);
         let grpc_tls_key_file = non_empty("QC_GRPC_TLS_KEY_FILE").map(PathBuf::from);
+        let gateway_tls_off = std::env::var("QC_GATEWAY_TLS")
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "false" | "0" | "no"))
+            .unwrap_or(false);
         let gateway_ca_file = non_empty("QC_GATEWAY_CA_FILE").map(PathBuf::from);
 
         Ok(Self {
@@ -110,6 +120,7 @@ impl Config {
             device_ca_dir,
             grpc_tls_cert_file,
             grpc_tls_key_file,
+            gateway_tls_off,
             gateway_ca_file,
         })
     }

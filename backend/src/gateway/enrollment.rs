@@ -369,7 +369,11 @@ impl EnrollmentService for EnrollmentGrpc {
         Ok(Response::new(CompleteEnrollmentResponse {
             client_cert_der: issued.cert_der,
             ca_chain_der: self.state.device_ca.ca_chain_der(),
-            assigned_gateway: self.state.gateway_addr.clone(),
+            assigned_gateway: crate::settings::get(db, crate::settings::GATEWAY_ADDR)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| self.state.gateway_addr.clone()),
             org_id: org_id.to_string(),
         }))
     }

@@ -9,6 +9,7 @@ import { Tabs } from "@/components/ui/Tabs";
 import { Toast } from "@/components/dashboard/Toast";
 import { deleteAdmin, getCurrentUser, listAdmins, type AdminAccount } from "@/lib/adminApi";
 import { AdminFormModal } from "./AdminFormModal";
+import { ServerSettingsTab } from "./ServerSettingsTab";
 
 const columns: Column<AdminAccount>[] = [
   { key: "email", header: "Email", value: (r) => r.email, mono: true, sortable: true },
@@ -40,8 +41,9 @@ const columns: Column<AdminAccount>[] = [
   },
 ];
 
-/// Admin console settings. Currently one tab: Users — the administrator
-/// accounts for this console (the separate `admins` realm, not tenant users).
+/// Admin console settings. Users — the administrator accounts for this
+/// console (the separate `admins` realm, not tenant users); Server — the
+/// instance-wide settings (device gateway address).
 export default function AdminSettingsPage() {
   const [tab, setTab] = useState("users");
   const [admins, setAdmins] = useState<AdminAccount[] | null>(null);
@@ -94,11 +96,16 @@ export default function AdminSettingsPage() {
 
       <div className="flex-1 overflow-auto px-[36px] pb-[28px]">
         <Tabs
-          items={[{ value: "users", label: "Users", count: admins?.length }]}
+          items={[
+            { value: "users", label: "Users", count: admins?.length },
+            { value: "server", label: "Server" },
+          ]}
           value={tab}
           onChange={setTab}
           className="mb-5"
         />
+
+        {tab === "server" && <ServerSettingsTab onSaved={setToast} />}
 
         {tab === "users" && (
           <>

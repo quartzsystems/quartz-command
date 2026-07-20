@@ -61,8 +61,13 @@ async fn main() -> Result<()> {
     // connect there) and the REST console (the per-device VyOS proxy).
     let device_registry = Arc::new(gateway::control::DeviceRegistry::new());
 
+    // The advertised gateway address: the admin-set override wins over the
+    // env value. Read at startup for the gateway (its auto-issued TLS cert
+    // must cover the host); token/enrollment paths re-read it per request so
+    // console edits apply without a restart.
+    let gateway_addr = quartz_command::settings::gateway_addr(&pool, &config).await?;
+
     let state = Arc::new(AppState {
-        gateway_addr: config.gateway_addr.clone(),
         gateway_ca_fingerprint_hex,
         device_ca: device_ca.clone(),
         db: pool.clone(),
@@ -76,7 +81,7 @@ async fn main() -> Result<()> {
     let grpc_state = Arc::new(gateway::GrpcState::new(
         pool.clone(),
         device_ca,
-        state.config.gateway_addr.clone(),
+        gateway_addr,
         device_registry,
     ));
     {
@@ -147,6 +152,10 @@ async fn main() -> Result<()> {
         .route(
             "/api/admin/admins/:admin_id",
             delete(admin::accounts::delete).patch(admin::accounts::update),
+        )
+        .route(
+            "/api/admin/settings",
+            get(admin::settings::get_settings).put(admin::settings::update),
         )
         .route("/api/admin/orgs", get(admin::orgs::list).post(admin::orgs::create))
         .route(

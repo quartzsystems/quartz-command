@@ -188,15 +188,18 @@ EOF
     open_firewall
 }
 
+# 443 is the web console; 8443 is the device gateway (gRPC) devices dial.
 open_firewall() {
     if systemctl is-active firewalld >/dev/null 2>&1; then
-        log "Opening https in firewalld"
+        log "Opening https and 8443/tcp in firewalld"
         (firewall-cmd --permanent --add-service=https >/dev/null \
+            && firewall-cmd --permanent --add-port=8443/tcp >/dev/null \
             && firewall-cmd --reload >/dev/null) \
-            || warn "could not open 443/tcp in firewalld"
+            || warn "could not open 443+8443/tcp in firewalld"
     elif command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
-        log "Opening 443/tcp in ufw"
-        ufw allow 443/tcp >/dev/null 2>&1 || warn "could not open 443/tcp in ufw"
+        log "Opening 443/tcp and 8443/tcp in ufw"
+        (ufw allow 443/tcp >/dev/null 2>&1 && ufw allow 8443/tcp >/dev/null 2>&1) \
+            || warn "could not open 443+8443/tcp in ufw"
     fi
 }
 
@@ -262,6 +265,12 @@ configure_backend() {
     log "Writing DATABASE_URL to $ENV_FILE"
     sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgres://$DB_ROLE:$DB_PASSWORD@127.0.0.1/$DB_NAME|" "$ENV_FILE"
 
+    # The address devices dial for enrollment — baked into enrollment tokens.
+    # Best guess is this host's primary address; correct it later in the admin
+    # console (Settings -> Server) if devices should use another name.
+    log "Setting the device gateway address to $HOST_ADDR:8443"
+    sed -i "s|^QC_GATEWAY_ADDR=.*|QC_GATEWAY_ADDR=$HOST_ADDR:8443|" "$ENV_FILE"
+
     # QC_COOKIE_SECURE stays true (the template default): the console is
     # served over TLS by nginx on :443.
 
@@ -301,6 +310,11 @@ start_services() {
 
 # ── run ─────────────────────────────────────────────────────────────────────
 
+# This host's primary address: used for the device gateway address written to
+# backend.env and for the URLs printed at the end.
+HOST_ADDR="$(hostname -I 2>/dev/null | awk '{print $1}')"
+HOST_ADDR="${HOST_ADDR:-127.0.0.1}"
+
 install_postgres
 fix_pg_hba
 provision_database
@@ -310,14 +324,12 @@ install_package
 configure_backend
 start_services
 
-HOST_ADDR="$(hostname -I 2>/dev/null | awk '{print $1}')"
-HOST_ADDR="${HOST_ADDR:-127.0.0.1}"
-
 echo
 log "Quartz Command is installed."
 echo
-echo "  Web console:   https://$HOST_ADDR/login"
-echo "  Admin console: https://$HOST_ADDR/admin/login"
+echo "  Web console:    https://$HOST_ADDR/login"
+echo "  Admin console:  https://$HOST_ADDR/admin/login"
+echo "  Device gateway: $HOST_ADDR:8443 (change in the admin console: Settings -> Server)"
 if [ -n "${ADMIN_PASSWORD:-}" ]; then
     echo
     echo "  Default admin account (change the password after first login):"

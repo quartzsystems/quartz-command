@@ -17,6 +17,7 @@ pub mod models;
 pub mod pki;
 pub mod security;
 pub mod seed;
+pub mod settings;
 pub mod slug;
 
 use sqlx::PgPool;
@@ -35,8 +36,6 @@ pub struct AppState {
     pub admin_jwt_secret: String,
     /// The internal CA issuing device mTLS client certs.
     pub device_ca: Arc<DeviceCa>,
-    /// `host:port` embedded in enrollment tokens / returned to devices.
-    pub gateway_addr: String,
     /// SHA-256 (hex) of the gateway's issuing CA cert — the `sha256:` field
     /// of enrollment tokens.
     pub gateway_ca_fingerprint_hex: String,
