@@ -1,6 +1,11 @@
 //! Organization + user management for the admin console. All routes sit
 //! behind `admin::auth::require_admin`, so callers are platform administrators;
-//! there is no tenant scoping here — admins see every organization.
+//! there is no tenant scoping here — admins see every *top-level*
+//! organization. Sub-organizations are a tenant-console concept (their access
+//! derives from parent membership, they hold no membership rows) and are
+//! invisible here: every query filters `parent_organization_id IS NULL`, so a
+//! sub-org id 404s rather than exposing rename/delete/add-member paths that
+//! would bypass the tenant console's rules.
 
 use axum::{
     extract::{Path, State},
@@ -46,7 +51,7 @@ async fn hash_password_blocking(password: String) -> Result<String> {
 /// GET /api/admin/overview — platform-wide counts for the dashboard tiles.
 pub async fn overview(State(state): State<Arc<AppState>>) -> Result<Json<Value>> {
     let (organizations, users, admins): (i64, i64, i64) = sqlx::query_as(
-        "SELECT (SELECT count(*) FROM organizations), \
+        "SELECT (SELECT count(*) FROM organizations WHERE parent_organization_id IS NULL), \
                 (SELECT count(*) FROM users), \
                 (SELECT count(*) FROM admins)",
     )
@@ -68,6 +73,7 @@ pub async fn list(State(state): State<Arc<AppState>>) -> Result<Json<Vec<AdminOr
         "SELECT o.id, o.name, o.slug, count(m.user_id) AS member_count, o.created_at \
          FROM organizations o \
          LEFT JOIN memberships m ON m.organization_id = o.id \
+         WHERE o.parent_organization_id IS NULL \
          GROUP BY o.id \
          ORDER BY o.name",
     )
@@ -116,7 +122,7 @@ pub async fn get_one(
         "SELECT o.id, o.name, o.slug, count(m.user_id) AS member_count, o.created_at \
          FROM organizations o \
          LEFT JOIN memberships m ON m.organization_id = o.id \
-         WHERE o.id = $1 \
+         WHERE o.id = $1 AND o.parent_organization_id IS NULL \
          GROUP BY o.id",
     )
     .bind(organization_guid)
@@ -158,7 +164,7 @@ pub async fn update(
 
     let org = sqlx::query_as::<_, AdminOrganization>(
         "UPDATE organizations SET name = $2, slug = $3 \
-         WHERE id = $1 \
+         WHERE id = $1 AND parent_organization_id IS NULL \
          RETURNING id, name, slug, \
              (SELECT count(*) FROM memberships m WHERE m.organization_id = id) AS member_count, \
              created_at",
@@ -180,8 +186,10 @@ pub async fn delete(
     State(state): State<Arc<AppState>>,
     Path(organization_guid): Path<Uuid>,
 ) -> Result<Json<Value>> {
-    let deleted = sqlx::query("DELETE FROM organizations WHERE id = $1")
-        .bind(organization_guid)
+    let deleted = sqlx::query(
+        "DELETE FROM organizations WHERE id = $1 AND parent_organization_id IS NULL",
+    )
+    .bind(organization_guid)
         .execute(&state.db)
         .await?;
     if deleted.rows_affected() == 0 {
@@ -223,8 +231,11 @@ pub async fn add_member(
     }
     validate_role(&body.role)?;
 
-    let org_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM organizations WHERE id = $1)")
-        .bind(organization_guid)
+    let org_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM organizations \
+         WHERE id = $1 AND parent_organization_id IS NULL)",
+    )
+    .bind(organization_guid)
         .fetch_one(&state.db)
         .await?;
     if !org_exists {
