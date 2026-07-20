@@ -66,13 +66,15 @@ random_secret() { od -An -tx1 -N16 /dev/urandom | tr -d ' \n'; }
 # ── PostgreSQL ──────────────────────────────────────────────────────────────
 
 install_postgres() {
+    # contrib is required: migration 0001 does CREATE EXTENSION pgcrypto, and
+    # the RHEL-family server package ships without the contrib modules.
     if [ "$FAMILY" = deb ]; then
         log "Installing PostgreSQL"
-        apt-get install -y -qq postgresql
+        apt-get install -y -qq postgresql postgresql-contrib
         PG_SERVICE=postgresql
     else
         log "Installing PostgreSQL server"
-        "$PKG" install -y -q postgresql-server
+        "$PKG" install -y -q postgresql-server postgresql-contrib
         PG_SERVICE=postgresql
         # Fedora/RHEL packages ship without an initialized cluster.
         if [ ! -f /var/lib/pgsql/data/PG_VERSION ]; then
@@ -102,8 +104,15 @@ fix_pg_hba() {
 provision_database() {
     DB_PASSWORD="$(random_secret)"
     if pg "SELECT 1 FROM pg_roles WHERE rolname = '$DB_ROLE'" | grep -q 1; then
-        log "Role '$DB_ROLE' exists — resetting its password for this install"
-        pg "ALTER ROLE $DB_ROLE WITH LOGIN PASSWORD '$DB_PASSWORD'" >/dev/null
+        # On a re-run, backend.env is already configured and configure_backend
+        # leaves it untouched — resetting the role password here would strand
+        # the env file with stale credentials.
+        if [ -f "$ENV_FILE" ] && ! grep -q 'CHANGE_ME' "$ENV_FILE"; then
+            log "Role '$DB_ROLE' and configured $ENV_FILE exist — leaving credentials alone"
+        else
+            log "Role '$DB_ROLE' exists — resetting its password for this install"
+            pg "ALTER ROLE $DB_ROLE WITH LOGIN PASSWORD '$DB_PASSWORD'" >/dev/null
+        fi
     else
         log "Creating PostgreSQL role '$DB_ROLE'"
         pg "CREATE ROLE $DB_ROLE WITH LOGIN PASSWORD '$DB_PASSWORD'" >/dev/null
