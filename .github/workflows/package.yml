@@ -66,5 +66,14 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm \
-            --repo "$GITHUB_REPOSITORY" --clobber
+          # uploads.github.com throws transient 503s; retry with backoff.
+          # --clobber makes retries idempotent (replaces partial assets).
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm \
+                 --repo "$GITHUB_REPOSITORY" --clobber; then
+              exit 0
+            fi
+            [ "$attempt" -lt 5 ] && { echo "upload failed (attempt $attempt) — retrying in $((attempt * 15))s"; sleep $((attempt * 15)); }
+          done
+          echo "asset upload failed after 5 attempts" >&2
+          exit 1
