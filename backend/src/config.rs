@@ -39,7 +39,8 @@ pub struct Config {
 
     /// Public `host:port` devices reach the gateway at — embedded in
     /// enrollment tokens and returned as `assigned_gateway`. Defaults to
-    /// `grpc_listen` (fine for local dev only).
+    /// `grpc_listen` with a wildcard host swapped for loopback (fine for
+    /// local dev only); the admin-console setting overrides it.
     pub gateway_addr: String,
 
     /// Directory holding the device CA key + cert (generated on first start).
@@ -61,6 +62,18 @@ pub struct Config {
     /// SHA-256 goes into enrollment tokens. Defaults to the device CA cert
     /// (correct for self-hosted setups where the gateway cert is internal).
     pub gateway_ca_file: Option<PathBuf>,
+}
+
+/// `host:port` a device could dial to reach a gateway bound at `listen`:
+/// wildcard hosts (`0.0.0.0`, `[::]`) become loopback, anything else passes
+/// through unchanged.
+fn advertised_from_listen(listen: &str) -> String {
+    for wild in ["0.0.0.0:", "[::]:", "*:"] {
+        if let Some(port) = listen.strip_prefix(wild) {
+            return format!("127.0.0.1:{port}");
+        }
+    }
+    listen.to_string()
 }
 
 impl Config {
@@ -92,10 +105,17 @@ impl Config {
         let default_admin_email = non_empty("QC_DEFAULT_ADMIN_EMAIL");
         let default_admin_password = non_empty("QC_DEFAULT_ADMIN_PASSWORD");
 
+        // All interfaces by default: devices connect here directly, and a
+        // loopback default has bitten real installs whose env file predates
+        // the setting. The listener serves TLS and enrollment needs a token,
+        // so exposure is deliberate.
         let grpc_listen =
-            std::env::var("QC_GRPC_LISTEN").unwrap_or_else(|_| "127.0.0.1:8443".to_string());
-        let gateway_addr =
-            std::env::var("QC_GATEWAY_ADDR").unwrap_or_else(|_| grpc_listen.clone());
+            std::env::var("QC_GRPC_LISTEN").unwrap_or_else(|_| "0.0.0.0:8443".to_string());
+        // A wildcard bind host is not dialable, so the advertised fallback
+        // swaps it for loopback (dev). Deployments set QC_GATEWAY_ADDR or the
+        // admin-console override to something devices can actually reach.
+        let gateway_addr = std::env::var("QC_GATEWAY_ADDR")
+            .unwrap_or_else(|_| advertised_from_listen(&grpc_listen));
         let device_ca_dir = std::env::var("QC_DEVICE_CA_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("./data/device-ca"));
