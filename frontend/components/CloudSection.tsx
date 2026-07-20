@@ -16,7 +16,7 @@ export function CloudSection({ title, blurb }: { title: string; blurb: string })
     : undefined;
 
   const scopeParts = [
-    params.device_id ? device?.hostname ?? params.device_id : null,
+    params.device_id ? (device?.hostname ?? params.device_id).toUpperCase() : null,
     sub?.name,
     org?.name,
   ].filter(Boolean);

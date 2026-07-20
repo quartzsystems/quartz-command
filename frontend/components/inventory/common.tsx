@@ -191,8 +191,14 @@ export const deviceColumns: Column<Device>[] = [
     sortable: true,
     width: 100,
   },
-  { key: "hostname", header: "Hostname", value: (r) => r.hostname, sortable: true },
-  { key: "version", header: "Version", value: (r) => r.qf_version, mono: true, width: 100 },
+  {
+    key: "hostname",
+    header: "Hostname",
+    value: (r) => r.hostname,
+    render: (r) => <span className="uppercase">{r.hostname}</span>,
+    sortable: true,
+  },
+  { key: "version", header: "Version", value: (r) => r.qf_version, mono: true, width: 300 },
   {
     key: "last_seen",
     header: "Last seen",

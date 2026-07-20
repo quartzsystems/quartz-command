@@ -159,11 +159,12 @@ export function CloudShell({
     refreshDevices();
   }, [refreshDevices]);
 
-  // Which sub-org dropdowns are open. Navigating to a device keeps its
-  // sub-org expanded so the active item is never hidden.
+  // Which sub-org dropdowns are open. Navigating into a sub-organization (or
+  // a device inside one) expands it, so its firewalls are visible on click
+  // and the active item is never hidden. Collapse stays manual.
   const [openSubs, setOpenSubs] = useState<Set<string>>(new Set());
   useEffect(() => {
-    const m = pathname.match(/\/orgs\/([^/]+)\/devices\//);
+    const m = pathname.match(/\/orgs\/([^/]+)/);
     if (m) {
       setOpenSubs((prev) => {
         if (prev.has(m[1])) return prev;
@@ -413,8 +414,8 @@ export function CloudShell({
                               : "text-[var(--qz-fg-3)] border-transparent hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]",
                           ].join(" ")}
                         >
-                          <Flame size={13} className="flex-shrink-0" />
-                          <span className="truncate">{d.hostname ?? d.device_id}</span>
+                          <Flame size={16} className="flex-shrink-0" />
+                          <span className="truncate uppercase">{d.hostname ?? d.device_id}</span>
                         </Link>
                       );
                     })}

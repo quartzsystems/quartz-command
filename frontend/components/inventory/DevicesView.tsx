@@ -25,11 +25,12 @@ import {
 /// to move it to another sub-org or deallocate it back to the pool.
 ///
 /// Sub-organization level: Allocated is this sub-org's fleet (deallocate /
-/// move away); Unallocated shows the parent's pool with a one-click
-/// "allocate here", and its "Add device" issues a token that enrolls devices
-/// straight into this sub-organization.
+/// move away); Unallocated shows only unallocated devices that enrolled via
+/// one of *this* sub-organization's tokens — never the parent's pool — with a
+/// one-click "allocate here", and its "Add device" issues a token that
+/// enrolls devices straight into this sub-organization.
 export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
-  const { orgGuid, subGuid, org, sub, subs, scopeName, devices, status, errorMsg, load } =
+  const { orgGuid, subGuid, org, sub, subs, scopeName, devices, tokens, status, errorMsg, load } =
     useInventoryData();
   const [toast, setToast] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -37,12 +38,25 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
 
   const ready = status === "ready" && devices;
 
+  // Sub-level Unallocated shows only devices that came in via this sub-org's
+  // own tokens (e.g. enrolled then deallocated by the parent) — the parent's
+  // pool is not this sub-organization's business.
+  const subTokenIds = new Set(
+    (tokens ?? []).filter((t) => t.sub_org_id === subGuid).map((t) => t.token_id),
+  );
   const rows = ready
     ? mode === "allocated"
       ? subGuid
         ? devices.filter((d) => d.sub_org_id === subGuid)
         : devices.filter((d) => d.sub_org_id != null)
-      : devices.filter((d) => d.sub_org_id == null)
+      : subGuid
+        ? devices.filter(
+            (d) =>
+              d.sub_org_id == null &&
+              d.enrolled_via_token != null &&
+              subTokenIds.has(d.enrolled_via_token),
+          )
+        : devices.filter((d) => d.sub_org_id == null)
     : [];
 
   const columns =
@@ -78,7 +92,7 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
         ? `QuartzFire devices allocated to ${sub?.name ?? "this sub-organization"}.`
         : "QuartzFire devices allocated to a sub-organization. Move them between sub-organizations or deallocate them back to the top-level pool."
       : subGuid
-        ? `The ${org?.name ?? "parent organization"} unallocated pool. Add a device for ${sub?.name ?? "this sub-organization"}, or allocate an existing one here.`
+        ? `Unallocated devices enrolled with ${sub?.name ?? "this sub-organization"}'s tokens. Add a device to enroll it straight into ${sub?.name ?? "this sub-organization"}.`
         : "Devices in the top-level pool. Add new devices here, then allocate them to a sub-organization.";
 
   const emptyMessage =
@@ -86,7 +100,9 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
       ? subGuid
         ? "No devices allocated to this sub-organization yet."
         : "No devices are allocated to a sub-organization yet."
-      : "No unallocated devices. “Add device” enrolls a new QuartzFire.";
+      : subGuid
+        ? "No devices waiting here. “Add device” enrolls a new QuartzFire into this sub-organization."
+        : "No unallocated devices. “Add device” enrolls a new QuartzFire.";
 
   return (
     <div className="p-6 flex flex-col gap-6">

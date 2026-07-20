@@ -59,7 +59,17 @@ export function SummaryView() {
       ? tokens.filter((t) => t.sub_org_id === subGuid)
       : tokens
     : [];
-  const unallocated = ready ? devices.filter((d) => !d.sub_org_id).length : 0;
+  // Sub level counts only unallocated devices enrolled via this sub-org's own
+  // tokens — the parent's pool is not visible from a sub-organization.
+  const subTokenIds = new Set(scopedTokens.map((t) => t.token_id));
+  const unallocated = ready
+    ? subGuid
+      ? devices.filter(
+          (d) =>
+            !d.sub_org_id && d.enrolled_via_token != null && subTokenIds.has(d.enrolled_via_token),
+        ).length
+      : devices.filter((d) => !d.sub_org_id).length
+    : 0;
   const activeTokens = scopedTokens.filter((t) => tokenStatus(t) === "active").length;
 
   return (
@@ -75,7 +85,7 @@ export function SummaryView() {
           <div className="flex gap-3 flex-wrap">
             <StatTile label="Devices" value={scopedDevices.length} />
             {subGuid ? (
-              <StatTile label="Available in pool" value={unallocated} />
+              <StatTile label="Awaiting allocation" value={unallocated} />
             ) : (
               <>
                 <StatTile label="Allocated" value={scopedDevices.length - unallocated} />
