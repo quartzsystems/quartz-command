@@ -79,6 +79,13 @@ impl DeviceRegistry {
         self.connections.lock().unwrap().contains_key(device_id)
     }
 
+    /// Snapshot of every device with a live control stream right now. Taken in
+    /// one lock so the console device list can mark connectivity without a
+    /// per-device lock round-trip.
+    pub fn online_ids(&self) -> std::collections::HashSet<String> {
+        self.connections.lock().unwrap().keys().cloned().collect()
+    }
+
     /// Route a response from the device's stream to its waiting caller.
     pub fn resolve(&self, device_id: &str, resp: ProxyResponse) {
         let waiter = {

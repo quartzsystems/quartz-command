@@ -1,12 +1,7 @@
 "use client";
 
-import { CloudSection } from "@/components/CloudSection";
+import { MonitorOverview } from "@/components/monitor/MonitorOverview";
 
 export default function MonitorPage() {
-  return (
-    <CloudSection
-      title="Monitor"
-      blurb="Live telemetry, health, and alerting across this organization will live here."
-    />
-  );
+  return <MonitorOverview />;
 }

@@ -14,7 +14,7 @@ use crate::audit;
 use crate::gateway::clone_detect::CloneSignal;
 use crate::gateway::pb::device::v1::{
     device_message, device_service_server::DeviceService, ControllerMessage, DeviceMessage,
-    RenewCertificateRequest, RenewCertificateResponse,
+    RenewCertificateRequest, RenewCertificateResponse, SecurityTelemetry,
 };
 use crate::gateway::GrpcState;
 use crate::pki::ca::{self, DeviceIdentity, DEVICE_CERT_DAYS};
@@ -139,6 +139,65 @@ pub async fn report_contact(state: &GrpcState, device_id: &str, org_id: uuid::Uu
     .await;
 }
 
+/// Store the latest security-telemetry snapshot a device pushed over its
+/// control stream (upsert — one row per device). Counters are u64 on the wire
+/// but always well within i64 in practice; saturate on the way into Postgres.
+async fn store_security_telemetry(state: &GrpcState, device_id: &str, t: &SecurityTelemetry) {
+    let ips = t.ips.clone().unwrap_or_default();
+    let ac = t.app_control.clone().unwrap_or_default();
+    let geo = t.geolocation.clone().unwrap_or_default();
+    let cf = t.content_filtering.clone().unwrap_or_default();
+    let i64c = |v: u64| i64::try_from(v).unwrap_or(i64::MAX);
+
+    let res = sqlx::query(
+        "INSERT INTO device_security_telemetry ( \
+            device_id, time_unix, interval_secs, \
+            ips_enabled, ips_prevented, ips_detected, ips_scans, ips_scans_available, \
+            ac_enabled, ac_blocked, ac_detected, ac_total_requests, \
+            geo_enabled, geo_blocked, geo_connections, geo_countries_blocked, \
+            cf_enabled, cf_blocked, cf_allowed, cf_total_requests, received_at) \
+         VALUES ($1,$2,$3, $4,$5,$6,$7,$8, $9,$10,$11,$12, $13,$14,$15,$16, $17,$18,$19,$20, now()) \
+         ON CONFLICT (device_id) DO UPDATE SET \
+            time_unix = EXCLUDED.time_unix, interval_secs = EXCLUDED.interval_secs, \
+            ips_enabled = EXCLUDED.ips_enabled, ips_prevented = EXCLUDED.ips_prevented, \
+            ips_detected = EXCLUDED.ips_detected, ips_scans = EXCLUDED.ips_scans, \
+            ips_scans_available = EXCLUDED.ips_scans_available, \
+            ac_enabled = EXCLUDED.ac_enabled, ac_blocked = EXCLUDED.ac_blocked, \
+            ac_detected = EXCLUDED.ac_detected, ac_total_requests = EXCLUDED.ac_total_requests, \
+            geo_enabled = EXCLUDED.geo_enabled, geo_blocked = EXCLUDED.geo_blocked, \
+            geo_connections = EXCLUDED.geo_connections, \
+            geo_countries_blocked = EXCLUDED.geo_countries_blocked, \
+            cf_enabled = EXCLUDED.cf_enabled, cf_blocked = EXCLUDED.cf_blocked, \
+            cf_allowed = EXCLUDED.cf_allowed, cf_total_requests = EXCLUDED.cf_total_requests, \
+            received_at = now()",
+    )
+    .bind(device_id)
+    .bind(t.time_unix)
+    .bind(t.interval_secs as i32)
+    .bind(ips.enabled)
+    .bind(i64c(ips.prevented))
+    .bind(i64c(ips.detected))
+    .bind(i64c(ips.scans))
+    .bind(ips.scans_available)
+    .bind(ac.enabled)
+    .bind(i64c(ac.blocked))
+    .bind(i64c(ac.detected))
+    .bind(i64c(ac.total_requests))
+    .bind(geo.enabled)
+    .bind(i64c(geo.blocked))
+    .bind(i64c(geo.connections))
+    .bind(geo.countries_blocked as i32)
+    .bind(cf.enabled)
+    .bind(i64c(cf.blocked))
+    .bind(i64c(cf.allowed))
+    .bind(i64c(cf.total_requests))
+    .execute(&state.db)
+    .await;
+    if let Err(e) = res {
+        tracing::debug!(device = %device_id, "storing security telemetry: {e}");
+    }
+}
+
 /// Extract and validate the mTLS device identity from a request.
 fn authenticated_identity<T>(request: &Request<T>) -> Result<DeviceIdentity, Status> {
     // peer_certs() is populated by tonic's TLS layer once the client cert
@@ -256,6 +315,9 @@ impl DeviceService for DeviceGrpc {
                         }
                         Ok(Some(DeviceMessage { msg: Some(device_message::Msg::ProxyResponse(resp)) })) => {
                             state.registry.resolve(&device_id, resp);
+                        }
+                        Ok(Some(DeviceMessage { msg: Some(device_message::Msg::SecurityTelemetry(t)) })) => {
+                            store_security_telemetry(&state, &device_id, &t).await;
                         }
                         Ok(Some(DeviceMessage { msg: None })) => {}
                         Ok(None) => break,          // device closed the stream

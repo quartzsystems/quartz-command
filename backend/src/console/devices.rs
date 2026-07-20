@@ -9,9 +9,9 @@ use uuid::Uuid;
 
 use crate::{
     audit,
-    console::organizations::{member_org, require_sub_org},
+    console::organizations::{member_org, require_folder, require_sub_org},
     error::{AppError, Result},
-    models::Device,
+    models::{Device, DeviceSecurityTelemetry},
     security::Claims,
     AppState,
 };
@@ -29,18 +29,58 @@ pub async fn list(
     let uid = caller_id(&claims)?;
     member_org(&state, organization_guid, uid).await?;
 
-    let devices = sqlx::query_as::<_, Device>(
+    let mut devices = sqlx::query_as::<_, Device>(
         "SELECT d.device_id, d.state, d.hostname, d.qf_version, d.cert_serial, d.cert_not_after, \
                 d.enrolled_at, d.enrolled_via_token, d.last_seen_at, d.last_seen_ip, \
-                d.sub_org_id, s.name AS sub_org_name \
-         FROM devices d LEFT JOIN organizations s ON s.id = d.sub_org_id \
+                d.sub_org_id, s.name AS sub_org_name, \
+                d.folder_id, f.name AS folder_name \
+         FROM devices d \
+         LEFT JOIN organizations s ON s.id = d.sub_org_id \
+         LEFT JOIN device_folders f ON f.id = d.folder_id \
          WHERE d.org_id = $1 ORDER BY d.enrolled_at DESC NULLS LAST, d.device_id",
     )
     .bind(organization_guid)
     .fetch_all(&state.db)
     .await?;
 
+    // Mark live connectivity from the gateway's in-memory stream registry — the
+    // ground-truth online/offline signal (a device is "online" only while it
+    // holds an active control stream), taken as one snapshot.
+    let online = state.device_registry.online_ids();
+    for d in &mut devices {
+        d.connected = online.contains(&d.device_id);
+    }
+
     Ok(Json(devices))
+}
+
+/// GET /api/orgs/:organization_guid/security-telemetry — any member. The latest
+/// pushed security-service snapshot for every device in the org that has ever
+/// reported. Carries `sub_org_id` so the Monitor → Summary can scope and
+/// aggregate per sub-organization (or per device) client-side.
+pub async fn security_telemetry(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(organization_guid): Path<Uuid>,
+) -> Result<Json<Vec<DeviceSecurityTelemetry>>> {
+    let uid = caller_id(&claims)?;
+    member_org(&state, organization_guid, uid).await?;
+
+    let rows = sqlx::query_as::<_, DeviceSecurityTelemetry>(
+        "SELECT t.device_id, d.sub_org_id, t.time_unix, \
+                t.ips_enabled, t.ips_prevented, t.ips_detected, t.ips_scans, t.ips_scans_available, \
+                t.ac_enabled, t.ac_blocked, t.ac_detected, t.ac_total_requests, \
+                t.geo_enabled, t.geo_blocked, t.geo_connections, t.geo_countries_blocked, \
+                t.cf_enabled, t.cf_blocked, t.cf_allowed, t.cf_total_requests, t.received_at \
+         FROM device_security_telemetry t \
+         JOIN devices d ON d.device_id = t.device_id \
+         WHERE d.org_id = $1",
+    )
+    .bind(organization_guid)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
 }
 
 /// POST /api/orgs/:organization_guid/devices/:device_id/revoke — owner/admin.
@@ -108,8 +148,11 @@ pub async fn allocate(
         require_sub_org(&state, organization_guid, sub).await?;
     }
 
+    // Folders belong to a specific sub-org, so any allocation change drops the
+    // device out of its folder back to the destination's ungrouped pool.
     let updated = sqlx::query(
-        "UPDATE devices SET sub_org_id = $3 WHERE device_id = $1 AND org_id = $2",
+        "UPDATE devices SET sub_org_id = $3, folder_id = NULL \
+         WHERE device_id = $1 AND org_id = $2",
     )
     .bind(&device_id)
     .bind(organization_guid)
@@ -130,6 +173,71 @@ pub async fn allocate(
     .await;
     tracing::info!(device = %device_id, org = %organization_guid,
                    sub_org = ?body.sub_org_id, "device allocation changed");
+
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct SetFolderRequest {
+    /// Folder to move the device into; None removes it from any folder (back to
+    /// the sub-organization's ungrouped pool).
+    pub folder_id: Option<Uuid>,
+}
+
+/// POST /api/orgs/:organization_guid/devices/:device_id/folder — owner/admin.
+/// Groups an allocated device into a folder of its sub-organization, or (with a
+/// null folder_id) removes it from its folder. The device must already be
+/// allocated to a sub-organization, and the folder must belong to that same
+/// sub-organization.
+pub async fn set_folder(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((organization_guid, device_id)): Path<(Uuid, String)>,
+    Json(body): Json<SetFolderRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let uid = caller_id(&claims)?;
+    let org = member_org(&state, organization_guid, uid).await?;
+    if org.role != "owner" && org.role != "admin" {
+        return Err(AppError::Forbidden);
+    }
+
+    // A device must be allocated to a sub-org before it can go in a folder.
+    let device_sub_org: Option<Uuid> = sqlx::query_scalar(
+        "SELECT sub_org_id FROM devices WHERE device_id = $1 AND org_id = $2",
+    )
+    .bind(&device_id)
+    .bind(organization_guid)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound("no such device".into()))?;
+
+    let sub_org_id = device_sub_org.ok_or_else(|| {
+        AppError::BadRequest("device is not allocated to a sub-organization".into())
+    })?;
+
+    // The folder must belong to the device's sub-org — keeps the invariant that
+    // folder_id always points to a folder of the device's current sub-org.
+    if let Some(folder_id) = body.folder_id {
+        require_folder(&state, sub_org_id, folder_id).await?;
+    }
+
+    sqlx::query("UPDATE devices SET folder_id = $3 WHERE device_id = $1 AND org_id = $2")
+        .bind(&device_id)
+        .bind(organization_guid)
+        .bind(body.folder_id)
+        .execute(&state.db)
+        .await?;
+
+    audit::record(
+        &state.db,
+        Some(organization_guid),
+        &format!("user:{uid}"),
+        if body.folder_id.is_some() { "device.foldered" } else { "device.unfoldered" },
+        json!({ "device_id": device_id, "folder_id": body.folder_id }),
+    )
+    .await;
+    tracing::info!(device = %device_id, org = %organization_guid,
+                   folder = ?body.folder_id, "device folder changed");
 
     Ok(Json(json!({ "ok": true })))
 }

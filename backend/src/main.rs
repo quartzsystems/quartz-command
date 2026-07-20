@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::{
     middleware,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use sqlx::PgPool;
@@ -116,6 +116,19 @@ async fn main() -> Result<()> {
             delete(console::organizations::remove_sub_member),
         )
         .route(
+            "/api/orgs/:organization_guid/folders",
+            get(console::organizations::list_folders),
+        )
+        .route(
+            "/api/orgs/:organization_guid/subs/:sub_guid/folders",
+            post(console::organizations::create_folder),
+        )
+        .route(
+            "/api/orgs/:organization_guid/subs/:sub_guid/folders/:folder_id",
+            patch(console::organizations::rename_folder)
+                .delete(console::organizations::delete_folder),
+        )
+        .route(
             "/api/orgs/:organization_guid/enroll-tokens",
             get(console::enroll_tokens::list).post(console::enroll_tokens::create),
         )
@@ -125,12 +138,20 @@ async fn main() -> Result<()> {
         )
         .route("/api/orgs/:organization_guid/devices", get(console::devices::list))
         .route(
+            "/api/orgs/:organization_guid/security-telemetry",
+            get(console::devices::security_telemetry),
+        )
+        .route(
             "/api/orgs/:organization_guid/devices/:device_id/revoke",
             post(console::devices::revoke),
         )
         .route(
             "/api/orgs/:organization_guid/devices/:device_id/allocate",
             post(console::devices::allocate),
+        )
+        .route(
+            "/api/orgs/:organization_guid/devices/:device_id/folder",
+            post(console::devices::set_folder),
         )
         .route(
             "/api/orgs/:organization_guid/devices/:device_id/proxy",

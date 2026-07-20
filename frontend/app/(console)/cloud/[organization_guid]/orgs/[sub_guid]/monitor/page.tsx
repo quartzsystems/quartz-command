@@ -1,12 +1,7 @@
 "use client";
 
-import { CloudSection } from "@/components/CloudSection";
+import { MonitorSummary } from "@/components/monitor/MonitorSummary";
 
 export default function SubOrgMonitorPage() {
-  return (
-    <CloudSection
-      title="Monitor"
-      blurb="Live telemetry, health, and alerting for this sub-organization will live here."
-    />
-  );
+  return <MonitorSummary />;
 }

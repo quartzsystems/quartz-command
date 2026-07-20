@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{AppError, Result},
-    models::{MemberOrganization, OrganizationMember, SubOrganization},
+    models::{DeviceFolder, MemberOrganization, OrganizationMember, SubOrganization},
     security::{self, Claims},
     slug, AppState,
 };
@@ -73,6 +73,25 @@ pub(crate) async fn require_sub_org(
     .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::NotFound("no such sub-organization".into()))
+}
+
+/// The folder, but only if it belongs to the given sub-organization — 404
+/// otherwise, so a folder id from another sub-org can't be used. The folder
+/// analogue of `require_sub_org`. pub(crate): the device folder route uses it.
+pub(crate) async fn require_folder(
+    state: &Arc<AppState>,
+    sub_guid: Uuid,
+    folder_id: Uuid,
+) -> Result<DeviceFolder> {
+    sqlx::query_as::<_, DeviceFolder>(
+        "SELECT id, sub_org_id, name, created_at FROM device_folders \
+         WHERE id = $1 AND sub_org_id = $2",
+    )
+    .bind(folder_id)
+    .bind(sub_guid)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound("no such folder".into()))
 }
 
 /// GET /api/orgs — the organizations the caller is a member of, each with the
@@ -359,5 +378,130 @@ pub async fn remove_sub_member(
     if deleted.rows_affected() == 0 {
         return Err(AppError::NotFound("no such membership".into()));
     }
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ── Device folders ──────────────────────────────────────────────────────────
+//
+// Folders group the firewalls allocated to a sub-organization (by location or
+// branch). A folder belongs to one sub-org; assigning a device to it lives in
+// the device routes. Listing is org-wide (one fetch backs the sidebar tree and
+// the sub-org inventory view, which filters client-side); mutations are
+// sub-scoped and require owner/admin in the parent, matching allocation.
+
+/// GET /api/orgs/:organization_guid/folders — every folder across the org's
+/// sub-organizations. Any parent member.
+pub async fn list_folders(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(organization_guid): Path<Uuid>,
+) -> Result<Json<Vec<DeviceFolder>>> {
+    let uid = caller_id(&claims)?;
+    member_org(&state, organization_guid, uid).await?;
+
+    let folders = sqlx::query_as::<_, DeviceFolder>(
+        "SELECT f.id, f.sub_org_id, f.name, f.created_at \
+         FROM device_folders f \
+         JOIN organizations s ON s.id = f.sub_org_id \
+         WHERE s.parent_organization_id = $1 \
+         ORDER BY f.name",
+    )
+    .bind(organization_guid)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(folders))
+}
+
+#[derive(Deserialize)]
+pub struct FolderRequest {
+    name: String,
+}
+
+/// POST /api/orgs/:organization_guid/subs/:sub_guid/folders — create a folder in
+/// a sub-organization. Owner/admin of the parent.
+pub async fn create_folder(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((organization_guid, sub_guid)): Path<(Uuid, Uuid)>,
+    Json(body): Json<FolderRequest>,
+) -> Result<Json<DeviceFolder>> {
+    let uid = caller_id(&claims)?;
+    manager_org(&state, organization_guid, uid).await?;
+    require_sub_org(&state, organization_guid, sub_guid).await?;
+
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("name is required".into()));
+    }
+
+    let folder = sqlx::query_as::<_, DeviceFolder>(
+        "INSERT INTO device_folders (sub_org_id, name) VALUES ($1, $2) \
+         RETURNING id, sub_org_id, name, created_at",
+    )
+    .bind(sub_guid)
+    .bind(name)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| slug::on_conflict(e, "a folder with that name already exists"))?;
+
+    tracing::info!(folder = %folder.id, sub = %sub_guid, "member created folder");
+    Ok(Json(folder))
+}
+
+/// PATCH /api/orgs/:organization_guid/subs/:sub_guid/folders/:folder_id — rename
+/// a folder. Owner/admin of the parent.
+pub async fn rename_folder(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((organization_guid, sub_guid, folder_id)): Path<(Uuid, Uuid, Uuid)>,
+    Json(body): Json<FolderRequest>,
+) -> Result<Json<DeviceFolder>> {
+    let uid = caller_id(&claims)?;
+    manager_org(&state, organization_guid, uid).await?;
+    require_sub_org(&state, organization_guid, sub_guid).await?;
+    require_folder(&state, sub_guid, folder_id).await?;
+
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("name is required".into()));
+    }
+
+    let folder = sqlx::query_as::<_, DeviceFolder>(
+        "UPDATE device_folders SET name = $3 WHERE id = $1 AND sub_org_id = $2 \
+         RETURNING id, sub_org_id, name, created_at",
+    )
+    .bind(folder_id)
+    .bind(sub_guid)
+    .bind(name)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| slug::on_conflict(e, "a folder with that name already exists"))?;
+
+    Ok(Json(folder))
+}
+
+/// DELETE /api/orgs/:organization_guid/subs/:sub_guid/folders/:folder_id — delete
+/// a folder. Owner/admin of the parent. Its devices return to the sub-org's
+/// ungrouped pool (the devices.folder_id FK is ON DELETE SET NULL).
+pub async fn delete_folder(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((organization_guid, sub_guid, folder_id)): Path<(Uuid, Uuid, Uuid)>,
+) -> Result<Json<Value>> {
+    let uid = caller_id(&claims)?;
+    manager_org(&state, organization_guid, uid).await?;
+    require_sub_org(&state, organization_guid, sub_guid).await?;
+
+    let deleted = sqlx::query("DELETE FROM device_folders WHERE id = $1 AND sub_org_id = $2")
+        .bind(folder_id)
+        .bind(sub_guid)
+        .execute(&state.db)
+        .await?;
+    if deleted.rows_affected() == 0 {
+        return Err(AppError::NotFound("no such folder".into()));
+    }
+
+    tracing::info!(folder = %folder_id, sub = %sub_guid, "member deleted folder");
     Ok(Json(json!({ "ok": true })))
 }

@@ -10,6 +10,7 @@ import {
   listDevices,
   listEnrollmentTokens,
   type Device,
+  type DeviceFolder,
   type EnrollmentToken,
   type MemberOrganization,
   type SubOrganization,
@@ -28,6 +29,8 @@ export function useInventoryData(): {
   scopeName: string | undefined;
   devices: Device[] | null;
   tokens: EnrollmentToken[] | null;
+  /** Folders of the current sub-org (empty at the org level). */
+  folders: DeviceFolder[];
   status: "loading" | "ready" | "error";
   errorMsg: string;
   load: (mode?: "load" | "refresh") => Promise<void>;
@@ -35,7 +38,7 @@ export function useInventoryData(): {
   const params = useParams<{ organization_guid: string; sub_guid?: string }>();
   const orgGuid = params.organization_guid;
   const subGuid = params.sub_guid;
-  const { org, subs, refreshDevices } = useCloudOrg();
+  const { org, subs, refreshDevices, folders: allFolders, refreshFolders } = useCloudOrg();
   const sub = subGuid ? subs?.find((s) => s.id === subGuid) : undefined;
   const scopeName = sub ? `${sub.name} · ${org?.name ?? ""}` : org?.name;
 
@@ -52,22 +55,41 @@ export function useInventoryData(): {
         setDevices(devs);
         setTokens(toks);
         setStatus("ready");
-        // Refresh loads follow a mutation (allocate / revoke / enroll), so
-        // keep the sidebar's per-sub-org device dropdowns in step too.
-        if (mode === "refresh") refreshDevices();
+        // Refresh loads follow a mutation (allocate / revoke / enroll / folder),
+        // so keep the sidebar's per-sub-org device + folder trees in step too.
+        if (mode === "refresh") {
+          refreshDevices();
+          refreshFolders();
+        }
       } catch (e) {
         setErrorMsg(e instanceof Error ? e.message : "Failed to load inventory.");
         setStatus("error");
       }
     },
-    [orgGuid, refreshDevices],
+    [orgGuid, refreshDevices, refreshFolders],
   );
 
   useEffect(() => {
     load();
   }, [load]);
 
-  return { orgGuid, subGuid, org, sub, subs, scopeName, devices, tokens, status, errorMsg, load };
+  // Folders scoped to the current sub-org (folders are a sub-org concept).
+  const folders = subGuid ? (allFolders ?? []).filter((f) => f.sub_org_id === subGuid) : [];
+
+  return {
+    orgGuid,
+    subGuid,
+    org,
+    sub,
+    subs,
+    scopeName,
+    devices,
+    tokens,
+    folders,
+    status,
+    errorMsg,
+    load,
+  };
 }
 
 /// Page header shared by the inventory views (view title + current scope).

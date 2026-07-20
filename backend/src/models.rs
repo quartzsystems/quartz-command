@@ -116,6 +116,61 @@ pub struct Device {
     /// sitting in the parent organization's pool).
     pub sub_org_id: Option<Uuid>,
     pub sub_org_name: Option<String>,
+    /// Folder within the sub-organization the device is grouped into (NULL =
+    /// ungrouped). Always belongs to `sub_org_id`; cleared on allocation change.
+    pub folder_id: Option<Uuid>,
+    pub folder_name: Option<String>,
+    /// Whether the device has a live control stream to the gateway right now.
+    /// Not a DB column — the list handler fills it from the in-memory device
+    /// registry, so it defaults to false when absent from the row.
+    #[sqlx(default)]
+    pub connected: bool,
+}
+
+/// A folder that groups firewalls within a single sub-organization (e.g. by
+/// location or branch). Purely organizational — it never changes a device's
+/// allocation. Access derives from membership in the parent organization.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct DeviceFolder {
+    pub id: Uuid,
+    pub sub_org_id: Uuid,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// The latest security-service telemetry snapshot a device pushed over its
+/// control stream. Counters are cumulative (Prometheus-counter semantics);
+/// `sub_org_id` (from the device row) lets the console scope/aggregate per
+/// sub-organization. Serialized to the Monitor → Summary security cards.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct DeviceSecurityTelemetry {
+    pub device_id: String,
+    pub sub_org_id: Option<Uuid>,
+    /// Device wall-clock of the snapshot (epoch seconds).
+    pub time_unix: i64,
+
+    pub ips_enabled: bool,
+    pub ips_prevented: i64,
+    pub ips_detected: i64,
+    pub ips_scans: i64,
+    pub ips_scans_available: bool,
+
+    pub ac_enabled: bool,
+    pub ac_blocked: i64,
+    pub ac_detected: i64,
+    pub ac_total_requests: i64,
+
+    pub geo_enabled: bool,
+    pub geo_blocked: i64,
+    pub geo_connections: i64,
+    pub geo_countries_blocked: i32,
+
+    pub cf_enabled: bool,
+    pub cf_blocked: i64,
+    pub cf_allowed: i64,
+    pub cf_total_requests: i64,
+
+    pub received_at: DateTime<Utc>,
 }
 
 /// A sub-organization nested under a parent organization (cloud console's

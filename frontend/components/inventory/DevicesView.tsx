@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRightLeft, FolderInput, Plus } from "lucide-react";
+import { ArrowRightLeft, FolderInput, FolderTree, Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { DataTable } from "@/components/dashboard/DataTable";
+import { Column, DataTable } from "@/components/dashboard/DataTable";
 import { Toast } from "@/components/dashboard/Toast";
 import { AddDeviceModal } from "@/components/AddDeviceModal";
 import { AllocateDeviceModal } from "@/components/inventory/AllocateDeviceModal";
-import { allocateDevice, revokeDevice, type Device } from "@/lib/api";
+import { FolderFormModal } from "@/components/FolderFormModal";
+import { MoveDeviceFolderModal } from "@/components/inventory/MoveDeviceFolderModal";
+import { allocateDevice, deleteFolder, revokeDevice, type Device, type DeviceFolder } from "@/lib/api";
 import {
   allocatedToColumn,
   ConfirmAction,
@@ -30,11 +32,17 @@ import {
 /// one-click "allocate here", and its "Add device" issues a token that
 /// enrolls devices straight into this sub-organization.
 export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
-  const { orgGuid, subGuid, org, sub, subs, scopeName, devices, tokens, status, errorMsg, load } =
+  const { orgGuid, subGuid, org, sub, subs, scopeName, devices, tokens, folders, status, errorMsg, load } =
     useInventoryData();
   const [toast, setToast] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [allocating, setAllocating] = useState<Device | null>(null);
+  const [foldering, setFoldering] = useState<Device | null>(null);
+  // The folder modal: `null` closed, `{}` create, `{ folder }` rename.
+  const [folderForm, setFolderForm] = useState<{ folder?: DeviceFolder } | null>(null);
+
+  // Folders only apply to a sub-organization's allocated fleet.
+  const showFolders = mode === "allocated" && !!subGuid;
 
   const ready = status === "ready" && devices;
 
@@ -59,10 +67,26 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
         : devices.filter((d) => d.sub_org_id == null)
     : [];
 
+  const folderColumn: Column<Device> = {
+    key: "folder",
+    header: "Folder",
+    value: (r) => r.folder_name ?? "Ungrouped",
+    render: (r) =>
+      r.folder_name ? (
+        r.folder_name
+      ) : (
+        <span style={{ color: "var(--qz-fg-4)" }}>Ungrouped</span>
+      ),
+    sortable: true,
+    width: 160,
+  };
+
   const columns =
     mode === "allocated" && !subGuid
       ? [...deviceColumns.slice(0, 2), allocatedToColumn, ...deviceColumns.slice(2)]
-      : deviceColumns;
+      : showFolders
+        ? [...deviceColumns.slice(0, 2), folderColumn, ...deviceColumns.slice(2)]
+        : deviceColumns;
 
   const doRevoke = async (d: Device) => {
     try {
@@ -83,6 +107,17 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
       await load("refresh");
     } catch (e) {
       setToast(e instanceof Error ? e.message : `Failed to allocate ${d.device_id}.`);
+    }
+  };
+
+  const doDeleteFolder = async (f: DeviceFolder) => {
+    if (!subGuid) return;
+    try {
+      await deleteFolder(orgGuid, subGuid, f.id);
+      setToast(`Deleted folder ${f.name}. Its firewalls are now ungrouped.`);
+      await load("refresh");
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : `Failed to delete folder ${f.name}.`);
     }
   };
 
@@ -120,6 +155,72 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
           <p className="text-[13px] m-0" style={{ color: "var(--qz-fg-3)" }}>
             {blurb}
           </p>
+
+          {showFolders && (
+            <div
+              className="surface p-3 flex flex-col gap-2"
+              style={{ borderRadius: "10px" }}
+            >
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-[11px] font-semibold uppercase"
+                  style={{
+                    color: "var(--qz-fg-3)",
+                    fontFamily: "var(--qz-font-mono)",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  Folders
+                </span>
+                <Button
+                  kind="secondary"
+                  size="sm"
+                  icon={Plus}
+                  onClick={() => setFolderForm({})}
+                >
+                  New folder
+                </Button>
+              </div>
+              {folders.length === 0 ? (
+                <p className="text-[12px] m-0" style={{ color: "var(--qz-fg-4)" }}>
+                  No folders yet. Create one to group these firewalls by location or branch.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {folders.map((f) => {
+                    const count = rows.filter((d) => d.folder_id === f.id).length;
+                    return (
+                      <div
+                        key={f.id}
+                        className="inline-flex items-center gap-2 pl-3 pr-1 py-1 rounded-md"
+                        style={{ background: "var(--qz-input-bg)", border: "1px solid var(--qz-border)" }}
+                      >
+                        <FolderTree size={13} className="flex-shrink-0 text-[var(--qz-fg-4)]" />
+                        <span className="text-[12.5px] text-[var(--qz-fg-1)]">{f.name}</span>
+                        <span className="text-[11px] tabular-nums" style={{ color: "var(--qz-fg-4)" }}>
+                          {count}
+                        </span>
+                        <button
+                          type="button"
+                          title={`Rename ${f.name}`}
+                          aria-label={`Rename folder ${f.name}`}
+                          onClick={() => setFolderForm({ folder: f })}
+                          className="grid place-items-center w-6 h-6 rounded bg-transparent border-0 text-[var(--qz-fg-4)] hover:text-[var(--qz-accent)] transition-colors cursor-pointer"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <ConfirmAction
+                          label={`Delete folder ${f.name}`}
+                          onConfirm={() => doDeleteFolder(f)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           <DataTable
             rows={rows}
             columns={columns}
@@ -137,6 +238,17 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
             }
             actions={(row) => (
               <div className="inline-flex items-center gap-1 justify-end">
+                {row.state !== "revoked" && showFolders && (
+                  <button
+                    type="button"
+                    title={`Move ${row.device_id} to a folder`}
+                    aria-label={`Move ${row.device_id} to a folder`}
+                    onClick={() => setFoldering(row)}
+                    className="grid place-items-center w-7 h-7 rounded-md bg-transparent border-0 text-[var(--qz-fg-4)] hover:text-[var(--qz-accent)] hover:bg-[color-mix(in_oklab,white_5%,transparent)] transition-colors cursor-pointer"
+                  >
+                    <FolderTree size={14} />
+                  </button>
+                )}
                 {row.state !== "revoked" &&
                   (mode === "unallocated" && subGuid ? (
                     <button
@@ -200,6 +312,35 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
           onClose={() => setAllocating(null)}
           onDone={(msg) => {
             setAllocating(null);
+            setToast(msg);
+            load("refresh");
+          }}
+        />
+      )}
+
+      {foldering && subGuid && (
+        <MoveDeviceFolderModal
+          orgGuid={orgGuid}
+          device={foldering}
+          folders={folders}
+          onClose={() => setFoldering(null)}
+          onDone={(msg) => {
+            setFoldering(null);
+            setToast(msg);
+            load("refresh");
+          }}
+        />
+      )}
+
+      {folderForm && subGuid && (
+        <FolderFormModal
+          orgGuid={orgGuid}
+          subGuid={subGuid}
+          subName={sub?.name}
+          folder={folderForm.folder}
+          onClose={() => setFolderForm(null)}
+          onSaved={(msg) => {
+            setFolderForm(null);
             setToast(msg);
             load("refresh");
           }}

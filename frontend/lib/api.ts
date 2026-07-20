@@ -186,6 +186,13 @@ export interface Device {
   /** Sub-organization the device is allocated to; null = unallocated. */
   sub_org_id: string | null;
   sub_org_name: string | null;
+  /** Folder within the sub-organization the device is grouped into; null =
+   *  ungrouped. Always belongs to sub_org_id. */
+  folder_id: string | null;
+  folder_name: string | null;
+  /** Live connectivity: true while the device holds an active control stream to
+   *  the gateway (the ground-truth online/offline signal). */
+  connected: boolean;
 }
 
 /** Devices of an organization. */
@@ -201,6 +208,46 @@ export function revokeDevice(guid: string, deviceId: string): Promise<{ ok: bool
   });
 }
 
+/** The latest security-service telemetry snapshot a firewall pushed over its
+ *  control stream. Counters are cumulative (Prometheus-counter semantics —
+ *  compute deltas, tolerate resets). One row per reporting device. */
+export interface DeviceSecurityTelemetry {
+  device_id: string;
+  /** Sub-organization the device is allocated to; null = unallocated. */
+  sub_org_id: string | null;
+  /** Device wall-clock of the snapshot (epoch seconds). */
+  time_unix: number;
+
+  ips_enabled: boolean;
+  ips_prevented: number;
+  ips_detected: number;
+  ips_scans: number;
+  ips_scans_available: boolean;
+
+  ac_enabled: boolean;
+  ac_blocked: number;
+  ac_detected: number;
+  ac_total_requests: number;
+
+  geo_enabled: boolean;
+  geo_blocked: number;
+  geo_connections: number;
+  geo_countries_blocked: number;
+
+  cf_enabled: boolean;
+  cf_blocked: number;
+  cf_allowed: number;
+  cf_total_requests: number;
+
+  /** When the controller received this snapshot (ISO 8601). */
+  received_at: string;
+}
+
+/** Latest security telemetry for every reporting device in the organization. */
+export function listSecurityTelemetry(guid: string): Promise<DeviceSecurityTelemetry[]> {
+  return apiFetch<DeviceSecurityTelemetry[]>(`/orgs/${guid}/security-telemetry`);
+}
+
 /** Allocate a device to a sub-organization, move it between sub-organizations,
  *  or deallocate it (null) back to the top-level pool. Owner/admin only. */
 export function allocateDevice(
@@ -211,5 +258,71 @@ export function allocateDevice(
   return apiFetch<{ ok: boolean }>(`/orgs/${guid}/devices/${deviceId}/allocate`, {
     method: "POST",
     body: JSON.stringify({ sub_org_id: subOrgId }),
+  });
+}
+
+// ── Folders ─────────────────────────────────────────────────────────────────
+
+/** A folder grouping firewalls within a sub-organization (by location/branch). */
+export interface DeviceFolder {
+  id: string;
+  sub_org_id: string;
+  name: string;
+  created_at: string;
+}
+
+/** Every folder across the organization's sub-organizations (one fetch backs
+ *  the sidebar tree and the sub-org inventory view). */
+export function listFolders(guid: string): Promise<DeviceFolder[]> {
+  return apiFetch<DeviceFolder[]>(`/orgs/${guid}/folders`);
+}
+
+/** Create a folder in a sub-organization (owner/admin only). */
+export function createFolder(
+  guid: string,
+  subGuid: string,
+  name: string,
+): Promise<DeviceFolder> {
+  return apiFetch<DeviceFolder>(`/orgs/${guid}/subs/${subGuid}/folders`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+/** Rename a folder (owner/admin only). */
+export function renameFolder(
+  guid: string,
+  subGuid: string,
+  folderId: string,
+  name: string,
+): Promise<DeviceFolder> {
+  return apiFetch<DeviceFolder>(`/orgs/${guid}/subs/${subGuid}/folders/${folderId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
+/** Delete a folder (owner/admin only). Its firewalls return to the sub-org's
+ *  ungrouped pool. */
+export function deleteFolder(
+  guid: string,
+  subGuid: string,
+  folderId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/orgs/${guid}/subs/${subGuid}/folders/${folderId}`, {
+    method: "DELETE",
+  });
+}
+
+/** Move an allocated device into a folder of its sub-organization, or (null)
+ *  remove it from any folder. Owner/admin only. */
+export function setDeviceFolder(
+  guid: string,
+  deviceId: string,
+  folderId: string | null,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/orgs/${guid}/devices/${deviceId}/folder`, {
+    method: "POST",
+    body: JSON.stringify({ folder_id: folderId }),
   });
 }

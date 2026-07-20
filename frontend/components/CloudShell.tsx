@@ -6,6 +6,8 @@ import {
   Building2,
   ChevronRight,
   Flame,
+  Folder,
+  FolderOpen,
   Gauge,
   LayoutDashboard,
   LogOut,
@@ -21,7 +23,13 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { Toast } from "@/components/dashboard/Toast";
 import { SubOrgFormModal } from "@/components/SubOrgFormModal";
 import * as api from "@/lib/api";
-import type { AuthUserInfo, Device, MemberOrganization, SubOrganization } from "@/lib/api";
+import type {
+  AuthUserInfo,
+  Device,
+  DeviceFolder,
+  MemberOrganization,
+  SubOrganization,
+} from "@/lib/api";
 
 /// Org-scoped data the shell fetches once and every console page can consume.
 interface CloudOrgContextValue {
@@ -33,6 +41,10 @@ interface CloudOrgContextValue {
   devices: Device[] | null;
   /** Re-fetch the sidebar device list (call after allocation changes). */
   refreshDevices: () => void;
+  /** Org-wide folder list (across all sub-orgs) backing the sidebar tree. */
+  folders: DeviceFolder[] | null;
+  /** Re-fetch the folder list (call after folder or device-folder changes). */
+  refreshFolders: () => void;
   /** Open the "create sub-organization" modal (same one as the sidebar +). */
   openCreateSub: () => void;
 }
@@ -101,6 +113,22 @@ export function CloudShell({
       : `${base}/orgs/${subGuid}`
     : base;
 
+  // The sidebar's per-sub-org firewall tree only makes sense in the
+  // device-level sections (Monitor, Configure). On the Dashboard, Inventory,
+  // and Administration sections it is hidden — those section keywords never
+  // collide with an org guid or a QF-… device id, so a segment match is safe.
+  const pathSegments = pathname.split("/");
+  const showDeviceTree =
+    pathSegments.includes("monitor") || pathSegments.includes("configure");
+
+  // Selecting an organization in the sidebar keeps you on the section you're
+  // already viewing (Monitor/Configure/Inventory/Administration) and just
+  // re-scopes it to that org, rather than snapping back to the dashboard. The
+  // section keyword is unambiguous in the path (never an org guid or device id).
+  const SECTION_KEYS = ["monitor", "configure", "inventory", "administration"];
+  const sectionKey = SECTION_KEYS.find((s) => pathSegments.includes(s));
+  const sectionSuffix = sectionKey ? `/${sectionKey}` : "";
+
   const [user, setUser] = useState<AuthUserInfo | null>(null);
   const [org, setOrg] = useState<MemberOrganization | null>(null);
   const [subs, setSubs] = useState<SubOrganization[] | null>(null);
@@ -159,6 +187,21 @@ export function CloudShell({
     refreshDevices();
   }, [refreshDevices]);
 
+  // Folders group the firewalls inside each sub-org; loaded org-wide so the
+  // sidebar tree can nest them. Inventory views refresh these after changes.
+  const [folders, setFolders] = useState<DeviceFolder[] | null>(null);
+  const refreshFolders = useCallback(() => {
+    api
+      .listFolders(orgGuid)
+      .then(setFolders)
+      .catch(() => setFolders((prev) => prev ?? []));
+  }, [orgGuid]);
+
+  useEffect(() => {
+    setFolders(null);
+    refreshFolders();
+  }, [refreshFolders]);
+
   // Which sub-org dropdowns are open. Navigating into a sub-organization (or
   // a device inside one) expands it, so its firewalls are visible on click
   // and the active item is never hidden. Collapse stays manual.
@@ -177,6 +220,17 @@ export function CloudShell({
 
   const toggleSub = (id: string) =>
     setOpenSubs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // Folders default to open (so their firewalls are visible); this tracks the
+  // ones the user has manually collapsed.
+  const [closedFolders, setClosedFolders] = useState<Set<string>>(new Set());
+  const toggleFolder = (id: string) =>
+    setClosedFolders((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -234,6 +288,8 @@ export function CloudShell({
         refreshSubs,
         devices,
         refreshDevices,
+        folders,
+        refreshFolders,
         openCreateSub: () => setCreating(true),
       }}
     >
@@ -358,7 +414,7 @@ export function CloudShell({
           </div>
 
           <div className="flex-1 min-h-0 overflow-auto px-3 flex flex-col gap-[2px] pt-3">
-            <Link href={base} className={sideItemClass(pathname === base)}>
+            <Link href={`${base}${sectionSuffix}`} className={sideItemClass(!subGuid)}>
               <LayoutDashboard size={16} />
               <span>Overview</span>
             </Link>
@@ -369,16 +425,42 @@ export function CloudShell({
               const subDevices = (devices ?? [])
                 .filter((d) => d.sub_org_id === sub.id && d.state !== "revoked")
                 .sort((a, b) => (a.hostname ?? a.device_id).localeCompare(b.hostname ?? b.device_id));
+              const subFolders = (folders ?? [])
+                .filter((f) => f.sub_org_id === sub.id)
+                .sort((a, b) => a.name.localeCompare(b.name));
+              const hasChildren =
+                showDeviceTree && (subDevices.length > 0 || subFolders.length > 0);
               const open = openSubs.has(sub.id);
               // The sub row yields its highlight to the device row when a
               // device inside it is the active scope.
               const subActive = pathname.startsWith(href) && !pathname.startsWith(deviceBase);
+              // One firewall link, reused for folder-nested and ungrouped rows;
+              // padClass sets the indent depth.
+              const deviceLink = (d: Device, padClass: string) => {
+                const deviceHref = `${deviceBase}${d.device_id}`;
+                return (
+                  <Link
+                    key={d.device_id}
+                    href={deviceHref}
+                    title={d.hostname ?? d.device_id}
+                    className={[
+                      `flex items-center gap-[8px] ${padClass} pr-[10px] py-[6px] rounded-md text-[12.5px] font-medium border transition-all duration-[120ms] no-underline w-full text-left cursor-pointer`,
+                      pathname.startsWith(deviceHref)
+                        ? "bg-[var(--qz-accent-soft)] text-[var(--qz-accent)] border-[color-mix(in_oklab,var(--qz-accent)_30%,transparent)]"
+                        : "text-[var(--qz-fg-3)] border-transparent hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]",
+                    ].join(" ")}
+                  >
+                    <Flame size={16} className="flex-shrink-0" />
+                    <span className="truncate uppercase">{d.hostname ?? d.device_id}</span>
+                  </Link>
+                );
+              };
               return (
                 <div key={sub.id} className="flex flex-col gap-[2px]">
-                  <Link href={href} className={sideItemClass(subActive)}>
+                  <Link href={`${href}${sectionSuffix}`} className={sideItemClass(subActive)}>
                     <Building2 size={15} className="flex-shrink-0" />
                     <span className="truncate">{sub.name}</span>
-                    {subDevices.length > 0 && (
+                    {hasChildren && (
                       <button
                         type="button"
                         title={open ? "Collapse devices" : "Expand devices"}
@@ -399,26 +481,41 @@ export function CloudShell({
                       </button>
                     )}
                   </Link>
-                  {open &&
-                    subDevices.map((d) => {
-                      const deviceHref = `${deviceBase}${d.device_id}`;
-                      return (
-                        <Link
-                          key={d.device_id}
-                          href={deviceHref}
-                          title={d.hostname ?? d.device_id}
-                          className={[
-                            "flex items-center gap-[8px] pl-[30px] pr-[10px] py-[6px] rounded-md text-[12.5px] font-medium border transition-all duration-[120ms] no-underline w-full text-left cursor-pointer",
-                            pathname.startsWith(deviceHref)
-                              ? "bg-[var(--qz-accent-soft)] text-[var(--qz-accent)] border-[color-mix(in_oklab,var(--qz-accent)_30%,transparent)]"
-                              : "text-[var(--qz-fg-3)] border-transparent hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]",
-                          ].join(" ")}
-                        >
-                          <Flame size={16} className="flex-shrink-0" />
-                          <span className="truncate uppercase">{d.hostname ?? d.device_id}</span>
-                        </Link>
-                      );
-                    })}
+                  {open && showDeviceTree && (
+                    <>
+                      {subFolders.map((folder) => {
+                        const folderDevices = subDevices.filter((d) => d.folder_id === folder.id);
+                        const folderOpen = !closedFolders.has(folder.id);
+                        return (
+                          <div key={folder.id} className="flex flex-col gap-[2px]">
+                            <button
+                              type="button"
+                              title={folderOpen ? "Collapse folder" : "Expand folder"}
+                              aria-label={folder.name}
+                              aria-expanded={folderOpen}
+                              onClick={() => toggleFolder(folder.id)}
+                              className="flex items-center gap-[8px] pl-[30px] pr-[10px] py-[6px] rounded-md text-[12.5px] font-medium border border-transparent bg-transparent transition-all duration-[120ms] w-full text-left cursor-pointer text-[var(--qz-fg-3)] hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]"
+                            >
+                              {folderOpen ? (
+                                <FolderOpen size={15} className="flex-shrink-0" />
+                              ) : (
+                                <Folder size={15} className="flex-shrink-0" />
+                              )}
+                              <span className="truncate">{folder.name}</span>
+                              <span
+                                className="ml-auto text-[11px] tabular-nums flex-shrink-0"
+                                style={{ color: "var(--qz-fg-4)" }}
+                              >
+                                {folderDevices.length}
+                              </span>
+                            </button>
+                            {folderOpen && folderDevices.map((d) => deviceLink(d, "pl-[46px]"))}
+                          </div>
+                        );
+                      })}
+                      {subDevices.filter((d) => !d.folder_id).map((d) => deviceLink(d, "pl-[30px]"))}
+                    </>
+                  )}
                 </div>
               );
             })}

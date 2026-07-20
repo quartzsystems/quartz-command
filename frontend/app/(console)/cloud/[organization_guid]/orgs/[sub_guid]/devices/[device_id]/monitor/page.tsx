@@ -1,12 +1,7 @@
 "use client";
 
-import { CloudSection } from "@/components/CloudSection";
+import { MonitorSummary } from "@/components/monitor/MonitorSummary";
 
 export default function DeviceMonitorPage() {
-  return (
-    <CloudSection
-      title="Monitor"
-      blurb="Live traffic, sessions, and logs from this QuartzFire will live here."
-    />
-  );
+  return <MonitorSummary />;
 }
