@@ -57,6 +57,10 @@ async fn main() -> Result<()> {
     let gateway_ca_fingerprint_hex =
         device_ca::gateway_ca_fingerprint_hex(config.gateway_ca_file.as_deref(), &device_ca)?;
 
+    // Live device control streams, shared between the gRPC gateway (devices
+    // connect there) and the REST console (the per-device VyOS proxy).
+    let device_registry = Arc::new(gateway::control::DeviceRegistry::new());
+
     let state = Arc::new(AppState {
         gateway_addr: config.gateway_addr.clone(),
         gateway_ca_fingerprint_hex,
@@ -64,6 +68,7 @@ async fn main() -> Result<()> {
         db: pool.clone(),
         jwt_secret,
         admin_jwt_secret,
+        device_registry: device_registry.clone(),
         config,
     });
 
@@ -72,6 +77,7 @@ async fn main() -> Result<()> {
         pool.clone(),
         device_ca,
         state.config.gateway_addr.clone(),
+        device_registry,
     ));
     {
         let grpc_config = state.config.clone();
@@ -93,7 +99,16 @@ async fn main() -> Result<()> {
         )
         .route(
             "/api/orgs/:organization_guid/subs/:sub_guid",
-            get(console::organizations::get_sub),
+            get(console::organizations::get_sub).delete(console::organizations::delete_sub),
+        )
+        .route(
+            "/api/orgs/:organization_guid/subs/:sub_guid/members",
+            get(console::organizations::list_sub_members)
+                .post(console::organizations::add_sub_member),
+        )
+        .route(
+            "/api/orgs/:organization_guid/subs/:sub_guid/members/:user_id",
+            delete(console::organizations::remove_sub_member),
         )
         .route(
             "/api/orgs/:organization_guid/enroll-tokens",
@@ -107,6 +122,14 @@ async fn main() -> Result<()> {
         .route(
             "/api/orgs/:organization_guid/devices/:device_id/revoke",
             post(console::devices::revoke),
+        )
+        .route(
+            "/api/orgs/:organization_guid/devices/:device_id/allocate",
+            post(console::devices::allocate),
+        )
+        .route(
+            "/api/orgs/:organization_guid/devices/:device_id/proxy",
+            post(console::device_proxy::forward),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),

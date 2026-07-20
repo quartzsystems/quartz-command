@@ -58,6 +58,8 @@ struct TokenRow {
     max_uses: Option<i32>,
     use_count: i32,
     revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Sub-organization the token allocates enrolled devices to, if any.
+    sub_org_id: Option<Uuid>,
 }
 
 impl TokenRow {
@@ -77,7 +79,7 @@ impl TokenRow {
 
 async fn load_token(db: &PgPool, token_id: &str) -> Result<Option<TokenRow>, Status> {
     sqlx::query_as::<_, TokenRow>(
-        "SELECT org_id, secret_hash, expires_at, max_uses, use_count, revoked_at \
+        "SELECT org_id, secret_hash, expires_at, max_uses, use_count, revoked_at, sub_org_id \
          FROM enrollment_tokens WHERE token_id = $1",
     )
     .bind(token_id)
@@ -312,17 +314,20 @@ impl EnrollmentService for EnrollmentGrpc {
             _ => {} // new device, or same-org pending/revoked → (re-)adopt
         }
 
+        // A sub-org-scoped token allocates the device to that sub-organization;
+        // an unscoped token leaves any existing allocation alone on re-adoption.
         sqlx::query(
             "INSERT INTO devices (device_id, org_id, pubkey, cert_serial, cert_not_after, state, \
                                   enrolled_at, enrolled_via_token, hostname, qf_version, \
-                                  last_seen_at, last_seen_ip) \
-             VALUES ($1, $2, $3, $4, $5, 'adopted', now(), $6, $7, $8, now(), $9) \
+                                  last_seen_at, last_seen_ip, sub_org_id) \
+             VALUES ($1, $2, $3, $4, $5, 'adopted', now(), $6, $7, $8, now(), $9, $10) \
              ON CONFLICT (device_id) DO UPDATE SET \
                pubkey = EXCLUDED.pubkey, cert_serial = EXCLUDED.cert_serial, \
                cert_not_after = EXCLUDED.cert_not_after, state = 'adopted', \
                enrolled_at = now(), enrolled_via_token = EXCLUDED.enrolled_via_token, \
                hostname = EXCLUDED.hostname, qf_version = EXCLUDED.qf_version, \
-               last_seen_at = now(), last_seen_ip = EXCLUDED.last_seen_ip",
+               last_seen_at = now(), last_seen_ip = EXCLUDED.last_seen_ip, \
+               sub_org_id = COALESCE(EXCLUDED.sub_org_id, devices.sub_org_id)",
         )
         .bind(&derived)
         .bind(org_id)
@@ -333,6 +338,7 @@ impl EnrollmentService for EnrollmentGrpc {
         .bind(&req.hostname)
         .bind(&req.qf_version)
         .bind(&ip)
+        .bind(token.sub_org_id)
         .execute(&mut *tx)
         .await
         .map_err(internal)?;

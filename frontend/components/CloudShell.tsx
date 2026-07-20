@@ -4,6 +4,8 @@ import {
   Activity,
   Boxes,
   Building2,
+  ChevronRight,
+  Flame,
   Gauge,
   LayoutDashboard,
   LogOut,
@@ -19,7 +21,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { Toast } from "@/components/dashboard/Toast";
 import { SubOrgFormModal } from "@/components/SubOrgFormModal";
 import * as api from "@/lib/api";
-import type { AuthUserInfo, MemberOrganization, SubOrganization } from "@/lib/api";
+import type { AuthUserInfo, Device, MemberOrganization, SubOrganization } from "@/lib/api";
 
 /// Org-scoped data the shell fetches once and every console page can consume.
 interface CloudOrgContextValue {
@@ -27,6 +29,10 @@ interface CloudOrgContextValue {
   org: MemberOrganization | null;
   subs: SubOrganization[] | null;
   refreshSubs: () => void;
+  /** Org-wide device list backing the sidebar's per-sub-org dropdowns. */
+  devices: Device[] | null;
+  /** Re-fetch the sidebar device list (call after allocation changes). */
+  refreshDevices: () => void;
   /** Open the "create sub-organization" modal (same one as the sidebar +). */
   openCreateSub: () => void;
 }
@@ -84,9 +90,16 @@ export function CloudShell({
 
   // When a sub-organization is selected in the sidebar, the top tabs scope to
   // it: they navigate within /cloud/{org}/orgs/{sub} instead of the parent.
-  const routeParams = useParams<{ sub_guid?: string }>();
+  // Selecting a device inside a sub-org narrows them one level further, to
+  // /cloud/{org}/orgs/{sub}/devices/{device}.
+  const routeParams = useParams<{ sub_guid?: string; device_id?: string }>();
   const subGuid = routeParams.sub_guid;
-  const tabBase = subGuid ? `${base}/orgs/${subGuid}` : base;
+  const deviceId = routeParams.device_id;
+  const tabBase = subGuid
+    ? deviceId
+      ? `${base}/orgs/${subGuid}/devices/${deviceId}`
+      : `${base}/orgs/${subGuid}`
+    : base;
 
   const [user, setUser] = useState<AuthUserInfo | null>(null);
   const [org, setOrg] = useState<MemberOrganization | null>(null);
@@ -130,6 +143,44 @@ export function CloudShell({
     setSubs(null);
     refreshSubs();
   }, [refreshSubs]);
+
+  // Devices back the sidebar's per-sub-org dropdowns (allocated firewalls by
+  // hostname). Inventory views call refreshDevices after allocation changes.
+  const [devices, setDevices] = useState<Device[] | null>(null);
+  const refreshDevices = useCallback(() => {
+    api
+      .listDevices(orgGuid)
+      .then(setDevices)
+      .catch(() => setDevices((prev) => prev ?? []));
+  }, [orgGuid]);
+
+  useEffect(() => {
+    setDevices(null);
+    refreshDevices();
+  }, [refreshDevices]);
+
+  // Which sub-org dropdowns are open. Navigating to a device keeps its
+  // sub-org expanded so the active item is never hidden.
+  const [openSubs, setOpenSubs] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const m = pathname.match(/\/orgs\/([^/]+)\/devices\//);
+    if (m) {
+      setOpenSubs((prev) => {
+        if (prev.has(m[1])) return prev;
+        const next = new Set(prev);
+        next.add(m[1]);
+        return next;
+      });
+    }
+  }, [pathname]);
+
+  const toggleSub = (id: string) =>
+    setOpenSubs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const logout = async () => {
     await api.logout();
@@ -175,7 +226,15 @@ export function CloudShell({
 
   return (
     <CloudOrgContext.Provider
-      value={{ orgGuid, org, subs, refreshSubs, openCreateSub: () => setCreating(true) }}
+      value={{
+        orgGuid,
+        org,
+        subs,
+        refreshSubs,
+        devices,
+        refreshDevices,
+        openCreateSub: () => setCreating(true),
+      }}
     >
       <div
         className="h-screen overflow-hidden"
@@ -305,11 +364,61 @@ export function CloudShell({
 
             {filteredSubs.map((sub) => {
               const href = `${base}/orgs/${sub.id}`;
+              const deviceBase = `${href}/devices/`;
+              const subDevices = (devices ?? [])
+                .filter((d) => d.sub_org_id === sub.id && d.state !== "revoked")
+                .sort((a, b) => (a.hostname ?? a.device_id).localeCompare(b.hostname ?? b.device_id));
+              const open = openSubs.has(sub.id);
+              // The sub row yields its highlight to the device row when a
+              // device inside it is the active scope.
+              const subActive = pathname.startsWith(href) && !pathname.startsWith(deviceBase);
               return (
-                <Link key={sub.id} href={href} className={sideItemClass(pathname.startsWith(href))}>
-                  <Building2 size={15} className="flex-shrink-0" />
-                  <span className="truncate">{sub.name}</span>
-                </Link>
+                <div key={sub.id} className="flex flex-col gap-[2px]">
+                  <Link href={href} className={sideItemClass(subActive)}>
+                    <Building2 size={15} className="flex-shrink-0" />
+                    <span className="truncate">{sub.name}</span>
+                    {subDevices.length > 0 && (
+                      <button
+                        type="button"
+                        title={open ? "Collapse devices" : "Expand devices"}
+                        aria-label={open ? "Collapse devices" : "Expand devices"}
+                        aria-expanded={open}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleSub(sub.id);
+                        }}
+                        className="ml-auto grid place-items-center w-5 h-5 rounded flex-shrink-0 bg-transparent border-0 cursor-pointer text-[var(--qz-fg-4)] hover:text-[var(--qz-fg-1)]"
+                      >
+                        <ChevronRight
+                          size={14}
+                          className="transition-transform duration-[120ms]"
+                          style={{ transform: open ? "rotate(90deg)" : undefined }}
+                        />
+                      </button>
+                    )}
+                  </Link>
+                  {open &&
+                    subDevices.map((d) => {
+                      const deviceHref = `${deviceBase}${d.device_id}`;
+                      return (
+                        <Link
+                          key={d.device_id}
+                          href={deviceHref}
+                          title={d.hostname ?? d.device_id}
+                          className={[
+                            "flex items-center gap-[8px] pl-[30px] pr-[10px] py-[6px] rounded-md text-[12.5px] font-medium border transition-all duration-[120ms] no-underline w-full text-left cursor-pointer",
+                            pathname.startsWith(deviceHref)
+                              ? "bg-[var(--qz-accent-soft)] text-[var(--qz-accent)] border-[color-mix(in_oklab,var(--qz-accent)_30%,transparent)]"
+                              : "text-[var(--qz-fg-3)] border-transparent hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]",
+                          ].join(" ")}
+                        >
+                          <Flame size={13} className="flex-shrink-0" />
+                          <span className="truncate">{d.hostname ?? d.device_id}</span>
+                        </Link>
+                      );
+                    })}
+                </div>
               );
             })}
 

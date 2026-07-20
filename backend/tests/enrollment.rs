@@ -35,7 +35,12 @@ fn service(pool: &PgPool) -> EnrollmentGrpc {
     let ca_dir = std::env::temp_dir().join(format!("qc-test-ca-{}", Uuid::new_v4()));
     let ca = Arc::new(DeviceCa::load_or_create(&ca_dir).expect("test CA"));
     EnrollmentGrpc {
-        state: Arc::new(GrpcState::new(pool.clone(), ca, "gw.test:8443".into())),
+        state: Arc::new(GrpcState::new(
+            pool.clone(),
+            ca,
+            "gw.test:8443".into(),
+            Arc::new(quartz_command::gateway::control::DeviceRegistry::new()),
+        )),
     }
 }
 

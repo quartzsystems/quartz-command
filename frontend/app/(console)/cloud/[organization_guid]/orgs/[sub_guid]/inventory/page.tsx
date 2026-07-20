@@ -1,12 +1,7 @@
 "use client";
 
-import { CloudSection } from "@/components/CloudSection";
+import { SummaryView } from "@/components/inventory/SummaryView";
 
-export default function SubOrgInventoryPage() {
-  return (
-    <CloudSection
-      title="Inventory"
-      blurb="Assets and devices registered to this sub-organization will live here."
-    />
-  );
+export default function SubOrgInventorySummaryPage() {
+  return <SummaryView />;
 }

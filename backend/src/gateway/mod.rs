@@ -8,6 +8,7 @@
 //! (local dev only; DeviceService is then effectively disabled).
 
 pub mod clone_detect;
+pub mod control;
 pub mod device;
 pub mod enrollment;
 pub mod pb;
@@ -41,16 +42,24 @@ pub struct GrpcState {
     pub gateway_addr: String,
     pub enroll_limiter: RateLimiter,
     pub clone_detector: CloneDetector,
+    /// Live device control streams — shared with the console's VyOS proxy.
+    pub registry: Arc<control::DeviceRegistry>,
 }
 
 impl GrpcState {
-    pub fn new(db: PgPool, device_ca: Arc<DeviceCa>, gateway_addr: String) -> Self {
+    pub fn new(
+        db: PgPool,
+        device_ca: Arc<DeviceCa>,
+        gateway_addr: String,
+        registry: Arc<control::DeviceRegistry>,
+    ) -> Self {
         Self {
             db,
             device_ca,
             gateway_addr,
             enroll_limiter: RateLimiter::new(ENROLL_RATE_MAX, ENROLL_RATE_WINDOW),
             clone_detector: CloneDetector::new(),
+            registry,
         }
     }
 }

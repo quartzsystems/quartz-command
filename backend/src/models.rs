@@ -93,6 +93,9 @@ pub struct EnrollmentTokenMeta {
     pub use_count: i32,
     pub revoked_at: Option<DateTime<Utc>>,
     pub created_by_email: Option<String>,
+    /// Sub-organization the token enrolls devices into (NULL = parent org).
+    pub sub_org_id: Option<Uuid>,
+    pub sub_org_name: Option<String>,
 }
 
 /// An enrolled QuartzFire device as shown in the Inventory section. The raw
@@ -109,6 +112,10 @@ pub struct Device {
     pub enrolled_via_token: Option<String>,
     pub last_seen_at: Option<DateTime<Utc>>,
     pub last_seen_ip: Option<String>,
+    /// Sub-organization the device is allocated to (NULL = unallocated, i.e.
+    /// sitting in the parent organization's pool).
+    pub sub_org_id: Option<Uuid>,
+    pub sub_org_name: Option<String>,
 }
 
 /// A sub-organization nested under a parent organization (cloud console's

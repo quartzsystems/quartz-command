@@ -80,14 +80,20 @@ function CopyBlock({ label, value }: { label: string; value: string }) {
 /// "Add device" flow: create an enrollment token (expiry / use-count /
 /// label), then show the QC1|… token string and the QuartzFire CLI one-liner
 /// exactly once — the secret is not retrievable after this modal closes.
+/// With a subOrgId, the token enrolls devices straight into that
+/// sub-organization instead of the top-level unallocated pool.
 export function AddDeviceModal({
   orgGuid,
   orgName,
+  subOrgId,
+  subOrgName,
   onClose,
   onSaved,
 }: {
   orgGuid: string;
   orgName?: string;
+  subOrgId?: string;
+  subOrgName?: string;
   onClose: () => void;
   /** Called after a successful create with a toast-able summary. */
   onSaved: (message: string) => void;
@@ -108,6 +114,7 @@ export function AddDeviceModal({
         label: label.trim() || undefined,
         expires_hours: Number(expiresHours),
         max_uses: maxUses ? Number(maxUses) : undefined,
+        sub_org_id: subOrgId,
       });
       setCreated(token);
       onSaved(`Created enrollment token ${token.token_id}.`);
@@ -125,9 +132,11 @@ export function AddDeviceModal({
         subtitle={
           created
             ? "Copy it now — this token is shown only once."
-            : orgName
-              ? `Create an enrollment token for ${orgName}`
-              : "Create an enrollment token"
+            : subOrgName
+              ? `Create an enrollment token for ${subOrgName} — devices enroll straight into it`
+              : orgName
+                ? `Create an enrollment token for ${orgName}`
+                : "Create an enrollment token"
         }
         onClose={onClose}
       />

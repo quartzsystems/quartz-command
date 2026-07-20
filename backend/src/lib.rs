@@ -40,4 +40,7 @@ pub struct AppState {
     /// SHA-256 (hex) of the gateway's issuing CA cert — the `sha256:` field
     /// of enrollment tokens.
     pub gateway_ca_fingerprint_hex: String,
+    /// Live device control streams (shared with the gRPC gateway) — the
+    /// console's per-device VyOS proxy sends requests through this.
+    pub device_registry: Arc<gateway::control::DeviceRegistry>,
 }

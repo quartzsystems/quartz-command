@@ -40,6 +40,8 @@ rand = "0.8"
 # Device enrollment gateway: gRPC (tonic) + the device PKI.
 tonic = { version = "0.12", features = ["tls"] }
 prost = "0.13"
+# ReceiverStream for the device control-stream response half.
+tokio-stream = "0.1"
 # Ed25519 verification of device proof-of-possession signatures.
 ed25519-dalek = { version = "2", features = ["pkcs8", "rand_core"] }
 sha2 = "0.10"
