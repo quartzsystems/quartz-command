@@ -42,8 +42,9 @@ pub struct IssuedCert {
     pub not_after: DateTime<Utc>,
 }
 
-/// TLS identity (PEM cert + key) for the gateway listener, issued by the
-/// device CA. Held in memory only — see [`DeviceCa::issue_gateway_cert`].
+/// TLS identity for the gateway listener, issued by the device CA:
+/// `cert_pem` is the full presented chain (leaf + issuing CA) and `key_pem`
+/// the leaf's key. Held in memory only — see [`DeviceCa::issue_gateway_cert`].
 pub struct GatewayTlsIdentity {
     pub cert_pem: String,
     pub key_pem: String,
@@ -166,8 +167,10 @@ impl DeviceCa {
             .signed_by(&key, &self.issuer, &self.key)
             .map_err(|e| anyhow!("signing gateway TLS cert: {e}"))?;
 
+        // Present leaf + issuing CA: devices pin the CA by SHA-256 and look
+        // for it in the presented chain, so a leaf alone can never match.
         Ok(GatewayTlsIdentity {
-            cert_pem: cert.pem(),
+            cert_pem: format!("{}{}", cert.pem(), self.ca_cert_pem),
             key_pem: key.serialize_pem(),
         })
     }
