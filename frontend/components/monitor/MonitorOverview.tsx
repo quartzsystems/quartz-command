@@ -6,20 +6,28 @@ import {
   FirewallStatusCard,
   FirmwareUpgradesCard,
   ManagedFirewallsStat,
+  ManagedSwitchesStat,
 } from "@/components/fleet/FleetCards";
 
-/// The organization-level Monitor landing view: the managed-firewall stat and
-/// the fleet Status + Firmware cards across the whole organization. No sub-nav
-/// here (that begins at the sub-organization / device scope).
+/// The organization-level Monitor landing view: the managed-firewall and
+/// managed-switch stats and the fleet Status + Firmware cards across the
+/// whole organization. No sub-nav here (that begins at the sub-organization /
+/// device scope).
 export function MonitorOverview() {
   const { org, devices } = useCloudOrg();
   const { latest, latestVer } = useLatestFirmware();
 
   const scoped = devices ?? [];
   const managed = scoped.filter((d) => d.state !== "revoked");
-  const orgsWithFirewalls = new Set(
-    managed.map((d) => d.sub_org_id).filter((id): id is string => id != null),
-  ).size;
+  const subtitle = (product: string) => {
+    const n = new Set(
+      managed
+        .filter((d) => d.product === product)
+        .map((d) => d.sub_org_id)
+        .filter((id): id is string => id != null),
+    ).size;
+    return `In ${n} ${n === 1 ? "organization" : "organizations"}`;
+  };
 
   return (
     <div className="p-6 flex flex-col gap-6">
@@ -35,11 +43,12 @@ export function MonitorOverview() {
         </p>
       </header>
 
-      <div className="max-w-[360px]">
-        <ManagedFirewallsStat
-          devices={scoped}
-          subtitle={`In ${orgsWithFirewalls} ${orgsWithFirewalls === 1 ? "organization" : "organizations"}`}
-        />
+      <div
+        className="grid gap-4 max-w-[740px]"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}
+      >
+        <ManagedFirewallsStat devices={scoped} subtitle={subtitle("quartzfire")} />
+        <ManagedSwitchesStat devices={scoped} subtitle={subtitle("quartzsonic")} />
       </div>
 
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>

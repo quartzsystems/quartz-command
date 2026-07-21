@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpCircle, Flame } from "lucide-react";
+import { ArrowUpCircle, EthernetPort, Flame } from "lucide-react";
 import type { Device } from "@/lib/api";
 import { parseVersion, upgradeableCount, type Version } from "@/components/fleet/firmware";
 
@@ -92,23 +92,25 @@ function StatusDonut({ segments, total }: { segments: StatusSegment[]; total: nu
 
 // ── Cards ───────────────────────────────────────────────────────────────────
 
-/// "Managed QuartzFire Firewalls" stat tile. `devices` is already scoped;
-/// revoked devices are excluded from the count. `subtitle` names the scope.
-export function ManagedFirewallsStat({
-  devices,
+/// Shared body of the per-product "Managed …" stat tiles.
+function ManagedStat({
+  count,
+  label,
   subtitle,
+  icon: Icon,
 }: {
-  devices: Device[];
+  count: number;
+  label: string;
   subtitle: string;
+  icon: typeof Flame;
 }) {
-  const count = devices.filter((d) => d.state !== "revoked").length;
   return (
     <div className="surface p-5 flex items-center gap-4">
       <div
         className="w-12 h-12 rounded-xl grid place-items-center flex-shrink-0"
         style={{ background: "var(--qz-accent-soft)", color: "var(--qz-accent)" }}
       >
-        <Flame size={22} />
+        <Icon size={22} />
       </div>
       <div className="flex flex-col">
         <span
@@ -118,13 +120,47 @@ export function ManagedFirewallsStat({
           {count}
         </span>
         <span className="text-[13px] mt-1" style={{ color: "var(--qz-fg-2)" }}>
-          Managed QuartzFire Firewalls
+          {label}
         </span>
         <span className="text-[12px] mt-[2px]" style={{ color: "var(--qz-fg-4)" }}>
           {subtitle}
         </span>
       </div>
     </div>
+  );
+}
+
+/// "Managed QuartzFire Firewalls" stat tile. `devices` is already scoped (but
+/// may mix products — only QuartzFire counts here); revoked devices are
+/// excluded. `subtitle` names the scope.
+export function ManagedFirewallsStat({
+  devices,
+  subtitle,
+}: {
+  devices: Device[];
+  subtitle: string;
+}) {
+  const count = devices.filter(
+    (d) => d.product === "quartzfire" && d.state !== "revoked",
+  ).length;
+  return (
+    <ManagedStat count={count} label="Managed QuartzFire Firewalls" subtitle={subtitle} icon={Flame} />
+  );
+}
+
+/// "Managed QuartzSONiC Switches" stat tile — the switch-fleet counterpart.
+export function ManagedSwitchesStat({
+  devices,
+  subtitle,
+}: {
+  devices: Device[];
+  subtitle: string;
+}) {
+  const count = devices.filter(
+    (d) => d.product === "quartzsonic" && d.state !== "revoked",
+  ).length;
+  return (
+    <ManagedStat count={count} label="Managed QuartzSONiC Switches" subtitle={subtitle} icon={EthernetPort} />
   );
 }
 
@@ -138,7 +174,7 @@ export function FirewallStatusCard({
   devices: Device[];
   onViewAll?: () => void;
 }) {
-  const active = devices.filter((d) => d.state !== "revoked");
+  const active = devices.filter((d) => d.product === "quartzfire" && d.state !== "revoked");
   const online = active.filter((d) => d.connected).length;
   const segments: StatusSegment[] = [
     { label: "Online", value: online, color: "var(--qz-green-500)" },
@@ -175,7 +211,7 @@ export function FirmwareUpgradesCard({
   latestVer: Version | null;
   onViewAll?: () => void;
 }) {
-  const managed = devices.filter((d) => d.state !== "revoked");
+  const managed = devices.filter((d) => d.product === "quartzfire" && d.state !== "revoked");
   const upgradeable = upgradeableCount(managed, latestVer);
   return (
     <section className="surface p-5">

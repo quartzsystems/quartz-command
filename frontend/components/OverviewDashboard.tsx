@@ -10,6 +10,7 @@ import {
   FirewallStatusCard,
   FirmwareUpgradesCard,
   ManagedFirewallsStat,
+  ManagedSwitchesStat,
 } from "@/components/fleet/FleetCards";
 
 /// Avatar initials: first letters of the full name's words ("Cody Wellman" →
@@ -64,10 +65,14 @@ export function OverviewDashboard({ subGuid }: { subGuid?: string }) {
   const scoped = (devices ?? []).filter((d) => (subGuid ? d.sub_org_id === subGuid : true));
   const managed = scoped.filter((d) => d.state !== "revoked");
 
-  // Distinct sub-orgs that hold at least one firewall (org level only).
-  const orgsWithFirewalls = new Set(
-    managed.map((d) => d.sub_org_id).filter((id): id is string => id != null),
-  ).size;
+  // Distinct sub-orgs that hold at least one device of a product (org level).
+  const orgCount = (product: string) =>
+    new Set(
+      managed
+        .filter((d) => d.product === product)
+        .map((d) => d.sub_org_id)
+        .filter((id): id is string => id != null),
+    ).size;
 
   const monitorHref = subGuid
     ? `/cloud/${orgGuid}/orgs/${subGuid}/monitor`
@@ -75,9 +80,11 @@ export function OverviewDashboard({ subGuid }: { subGuid?: string }) {
 
   const scopeName = subGuid ? sub?.name ?? "Loading…" : org?.name ?? "Loading…";
   const greetingName = user ? user.full_name || user.email : "…";
-  const statSubtitle = subGuid
-    ? `In ${sub?.name ?? "this sub-organization"}`
-    : `In ${orgsWithFirewalls} ${orgsWithFirewalls === 1 ? "organization" : "organizations"}`;
+  const statSubtitle = (product: string) => {
+    if (subGuid) return `In ${sub?.name ?? "this sub-organization"}`;
+    const n = orgCount(product);
+    return `In ${n} ${n === 1 ? "organization" : "organizations"}`;
+  };
 
   return (
     <div className="p-6 flex flex-col gap-6">
@@ -122,8 +129,12 @@ export function OverviewDashboard({ subGuid }: { subGuid?: string }) {
         </button>
       </header>
 
-      <div className="max-w-[360px]">
-        <ManagedFirewallsStat devices={scoped} subtitle={statSubtitle} />
+      <div
+        className="grid gap-4 max-w-[740px]"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}
+      >
+        <ManagedFirewallsStat devices={scoped} subtitle={statSubtitle("quartzfire")} />
+        <ManagedSwitchesStat devices={scoped} subtitle={statSubtitle("quartzsonic")} />
       </div>
 
       <div

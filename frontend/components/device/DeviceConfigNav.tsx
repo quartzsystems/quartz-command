@@ -8,6 +8,7 @@ import { SaveIndicator } from "@/components/dashboard/SaveIndicator";
 import { Toast } from "@/components/dashboard/Toast";
 import { setDeviceScope } from "@/lib/device/api";
 import { DashboardProvider, useDashboard } from "@/lib/device/DashboardContext";
+import { useCloudOrg } from "@/components/CloudShell";
 import {
   AppWindow,
   ArrowLeftRight,
@@ -18,6 +19,7 @@ import {
   ChevronRight,
   Combine,
   Earth,
+  EthernetPort,
   Filter,
   Forward,
   Globe,
@@ -160,12 +162,36 @@ const GROUPS: NavGroup[] = [
   },
 ];
 
+/// QuartzSONiC switches manage L2 switching from the cloud; no local web UI
+/// to mirror, so this nav is the switch's primary configuration surface.
+const SONIC_GROUPS: NavGroup[] = [
+  {
+    id: "switching",
+    label: "Switching",
+    icon: Network,
+    segment: "/switching",
+    children: [
+      { id: "ports",         label: "Ports",         segment: "/switching/ports",         icon: EthernetPort },
+      { id: "port-channels", label: "Port Channels", segment: "/switching/port-channels", icon: Combine },
+      { id: "vlans",         label: "VLANs",         segment: "/switching/vlans",         icon: Tags },
+    ],
+  },
+];
+
 /// Secondary navigation for a device's Configure section — the same groups,
 /// icons, and expand/collapse behaviour as the QuartzFire local UI sidebar.
+/// The groups depend on the routed device's product line: QuartzFire
+/// firewalls get the full firewall tree, QuartzSONiC switches the Switching
+/// tree. Until the org device list has loaded the nav renders empty rather
+/// than flashing the wrong product's sections.
 export function DeviceConfigNav() {
   const pathname = (usePathname() ?? "/").replace(/\/+$/, "") || "/";
   const params = useParams<{ organization_guid: string; sub_guid: string; device_id: string }>();
   const base = `/cloud/${params.organization_guid}/orgs/${params.sub_guid}/devices/${params.device_id}/configure`;
+
+  const { devices } = useCloudOrg();
+  const device = devices?.find((d) => d.device_id === params.device_id);
+  const groups = devices === null ? [] : device?.product === "quartzsonic" ? SONIC_GROUPS : GROUPS;
 
   // Expandable groups: open if explicitly toggled, else default-open on the
   // active subtree (same rule as the QuartzFire sidebar).
@@ -186,7 +212,7 @@ export function DeviceConfigNav() {
       style={{ borderRight: "1px solid var(--qz-border)" }}
     >
       <nav className="sticky top-0 px-3 pt-6 flex flex-col gap-[2px]">
-        {GROUPS.map((group) => {
+        {groups.map((group) => {
           const Icon = group.icon;
           const open = isOpen(group);
           // Parent never shows the green "active" state — only children light up.
