@@ -149,6 +149,11 @@ export function fetchLatestImage(): Promise<LatestImage> {
 
 // ── Device enrollment ───────────────────────────────────────────────────────
 
+/** Product lines managed by Quartz Command: QuartzFire firewalls and
+ *  QuartzSONiC switch agents. Both share the enrollment flow and protocols;
+ *  the token's product decides the device-ID prefix (QF- / QS-). */
+export type Product = "quartzfire" | "quartzsonic";
+
 /** Enrollment-token metadata; the secret only ever appears in the create
  *  response's `token` field, exactly once. */
 export interface EnrollmentToken {
@@ -163,6 +168,8 @@ export interface EnrollmentToken {
   /** Sub-organization devices enrolled via this token are allocated to. */
   sub_org_id: string | null;
   sub_org_name: string | null;
+  /** Product line the token enrolls. */
+  product: Product;
 }
 
 /** Create response: metadata plus the full QC1|… token string (shown once,
@@ -179,6 +186,8 @@ export interface CreateEnrollmentTokenInput {
   max_uses?: number;
   /** Allocate enrolled devices to this sub-organization. */
   sub_org_id?: string;
+  /** Product line the token enrolls (server default "quartzfire"). */
+  product?: Product;
 }
 
 /** Enrollment tokens of an organization (metadata only). */
@@ -204,10 +213,13 @@ export function revokeEnrollmentToken(guid: string, tokenId: string): Promise<{ 
   });
 }
 
-/** A QuartzFire device enrolled to (or revoked from) the organization. */
+/** A device (QuartzFire firewall or QuartzSONiC switch) enrolled to — or
+ *  revoked from — the organization. */
 export interface Device {
   device_id: string;
   state: "pending" | "adopted" | "revoked";
+  /** Product line, stamped at adoption from the enrollment token. */
+  product: Product;
   hostname: string | null;
   qf_version: string | null;
   cert_serial: string | null;

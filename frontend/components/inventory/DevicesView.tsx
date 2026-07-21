@@ -9,17 +9,27 @@ import { AddDeviceModal } from "@/components/AddDeviceModal";
 import { AllocateDeviceModal } from "@/components/inventory/AllocateDeviceModal";
 import { FolderFormModal } from "@/components/FolderFormModal";
 import { MoveDeviceFolderModal } from "@/components/inventory/MoveDeviceFolderModal";
-import { allocateDevice, deleteFolder, revokeDevice, type Device, type DeviceFolder } from "@/lib/api";
+import {
+  allocateDevice,
+  deleteFolder,
+  revokeDevice,
+  type Device,
+  type DeviceFolder,
+  type Product,
+} from "@/lib/api";
 import {
   allocatedToColumn,
   ConfirmAction,
   deviceColumns,
   InventoryHeader,
   InventoryStatus,
+  PRODUCT_LABEL,
   useInventoryData,
 } from "@/components/inventory/common";
 
-/// Inventory → QuartzFire → Allocated / Unallocated.
+/// Inventory → QuartzFire / QuartzSONiC → Allocated / Unallocated. One view
+/// per product line — `product` scopes the org-wide device list and the "Add
+/// device" token flow to that product.
 ///
 /// Organization level: Unallocated is the top-level pool where devices are
 /// added (the "Add device" token flow lives here) and then allocated out;
@@ -31,7 +41,13 @@ import {
 /// one of *this* sub-organization's tokens — never the parent's pool — with a
 /// one-click "allocate here", and its "Add device" issues a token that
 /// enrolls devices straight into this sub-organization.
-export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
+export function DevicesView({
+  mode,
+  product,
+}: {
+  mode: "allocated" | "unallocated";
+  product: Product;
+}) {
   const { orgGuid, subGuid, org, sub, subs, scopeName, devices, tokens, folders, status, errorMsg, load } =
     useInventoryData();
   const [toast, setToast] = useState<string | null>(null);
@@ -45,6 +61,8 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
   const showFolders = mode === "allocated" && !!subGuid;
 
   const ready = status === "ready" && devices;
+  const productLabel = PRODUCT_LABEL[product];
+  const productDevices = ready ? devices.filter((d) => d.product === product) : [];
 
   // Sub-level Unallocated shows only devices that came in via this sub-org's
   // own tokens (e.g. enrolled then deallocated by the parent) — the parent's
@@ -52,20 +70,19 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
   const subTokenIds = new Set(
     (tokens ?? []).filter((t) => t.sub_org_id === subGuid).map((t) => t.token_id),
   );
-  const rows = ready
-    ? mode === "allocated"
+  const rows =
+    mode === "allocated"
       ? subGuid
-        ? devices.filter((d) => d.sub_org_id === subGuid)
-        : devices.filter((d) => d.sub_org_id != null)
+        ? productDevices.filter((d) => d.sub_org_id === subGuid)
+        : productDevices.filter((d) => d.sub_org_id != null)
       : subGuid
-        ? devices.filter(
+        ? productDevices.filter(
             (d) =>
               d.sub_org_id == null &&
               d.enrolled_via_token != null &&
               subTokenIds.has(d.enrolled_via_token),
           )
-        : devices.filter((d) => d.sub_org_id == null)
-    : [];
+        : productDevices.filter((d) => d.sub_org_id == null);
 
   const folderColumn: Column<Device> = {
     key: "folder",
@@ -114,7 +131,7 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
     if (!subGuid) return;
     try {
       await deleteFolder(orgGuid, subGuid, f.id);
-      setToast(`Deleted folder ${f.name}. Its firewalls are now ungrouped.`);
+      setToast(`Deleted folder ${f.name}. Its devices are now ungrouped.`);
       await load("refresh");
     } catch (e) {
       setToast(e instanceof Error ? e.message : `Failed to delete folder ${f.name}.`);
@@ -124,20 +141,20 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
   const blurb =
     mode === "allocated"
       ? subGuid
-        ? `QuartzFire devices allocated to ${sub?.name ?? "this sub-organization"}.`
-        : "QuartzFire devices allocated to a sub-organization. Move them between sub-organizations or deallocate them back to the top-level pool."
+        ? `${productLabel} devices allocated to ${sub?.name ?? "this sub-organization"}.`
+        : `${productLabel} devices allocated to a sub-organization. Move them between sub-organizations or deallocate them back to the top-level pool.`
       : subGuid
-        ? `Unallocated devices enrolled with ${sub?.name ?? "this sub-organization"}'s tokens. Add a device to enroll it straight into ${sub?.name ?? "this sub-organization"}.`
-        : "Devices in the top-level pool. Add new devices here, then allocate them to a sub-organization.";
+        ? `Unallocated ${productLabel} devices enrolled with ${sub?.name ?? "this sub-organization"}'s tokens. Add a device to enroll it straight into ${sub?.name ?? "this sub-organization"}.`
+        : `${productLabel} devices in the top-level pool. Add new devices here, then allocate them to a sub-organization.`;
 
   const emptyMessage =
     mode === "allocated"
       ? subGuid
-        ? "No devices allocated to this sub-organization yet."
-        : "No devices are allocated to a sub-organization yet."
+        ? `No ${productLabel} devices allocated to this sub-organization yet.`
+        : `No ${productLabel} devices are allocated to a sub-organization yet.`
       : subGuid
-        ? "No devices waiting here. “Add device” enrolls a new QuartzFire into this sub-organization."
-        : "No unallocated devices. “Add device” enrolls a new QuartzFire.";
+        ? `No devices waiting here. “Add device” enrolls a new ${productLabel} into this sub-organization.`
+        : `No unallocated ${productLabel} devices. “Add device” enrolls a new ${productLabel}.`;
 
   return (
     <div className="p-6 flex flex-col gap-6">
@@ -183,7 +200,7 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
               </div>
               {folders.length === 0 ? (
                 <p className="text-[12px] m-0" style={{ color: "var(--qz-fg-4)" }}>
-                  No folders yet. Create one to group these firewalls by location or branch.
+                  No folders yet. Create one to group these devices by location or branch.
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -225,7 +242,7 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
             rows={rows}
             columns={columns}
             rowId={(r) => r.device_id}
-            storageKey={`${subGuid ? "sub" : "org"}-devices-${mode}`}
+            storageKey={`${subGuid ? "sub" : "org"}-devices-${product === "quartzsonic" ? "sonic-" : ""}${mode}`}
             searchPlaceholder="Search devices…"
             emptyMessage={emptyMessage}
             onRefresh={() => load("refresh")}
@@ -294,6 +311,7 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
           orgName={org?.name}
           subOrgId={subGuid}
           subOrgName={sub?.name}
+          product={product}
           onClose={() => {
             setAdding(false);
             load("refresh");

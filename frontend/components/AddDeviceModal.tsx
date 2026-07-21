@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { ModalShell, ModalHeader } from "@/components/ui/Modal";
+import { PRODUCT_LABEL } from "@/components/inventory/common";
 import {
   createEnrollmentToken,
   type CreatedEnrollmentToken,
+  type Product,
 } from "@/lib/api";
 
 const inputCls = "w-full rounded-md px-3 py-[9px] text-[13px] text-[var(--qz-fg-1)] outline-none";
@@ -78,15 +80,17 @@ function CopyBlock({ label, value }: { label: string; value: string }) {
 }
 
 /// "Add device" flow: create an enrollment token (expiry / use-count /
-/// label), then show the QC1|… token string and the QuartzFire CLI one-liner
-/// exactly once — the secret is not retrievable after this modal closes.
-/// With a subOrgId, the token enrolls devices straight into that
-/// sub-organization instead of the top-level unallocated pool.
+/// label), then show the QC1|… token string and the product's enroll
+/// one-liner exactly once — the secret is not retrievable after this modal
+/// closes. The token is scoped to a product line (QuartzFire / QuartzSONiC);
+/// with a subOrgId it enrolls devices straight into that sub-organization
+/// instead of the top-level unallocated pool.
 export function AddDeviceModal({
   orgGuid,
   orgName,
   subOrgId,
   subOrgName,
+  product,
   onClose,
   onSaved,
 }: {
@@ -94,6 +98,7 @@ export function AddDeviceModal({
   orgName?: string;
   subOrgId?: string;
   subOrgName?: string;
+  product: Product;
   onClose: () => void;
   /** Called after a successful create with a toast-able summary. */
   onSaved: (message: string) => void;
@@ -115,6 +120,7 @@ export function AddDeviceModal({
         expires_hours: Number(expiresHours),
         max_uses: maxUses ? Number(maxUses) : undefined,
         sub_org_id: subOrgId,
+        product,
       });
       setCreated(token);
       onSaved(`Created enrollment token ${token.token_id}.`);
@@ -133,10 +139,10 @@ export function AddDeviceModal({
           created
             ? "Copy it now — this token is shown only once."
             : subOrgName
-              ? `Create an enrollment token for ${subOrgName} — devices enroll straight into it`
+              ? `Create a ${PRODUCT_LABEL[product]} enrollment token for ${subOrgName} — devices enroll straight into it`
               : orgName
-                ? `Create an enrollment token for ${orgName}`
-                : "Create an enrollment token"
+                ? `Create a ${PRODUCT_LABEL[product]} enrollment token for ${orgName}`
+                : `Create a ${PRODUCT_LABEL[product]} enrollment token`
         }
         onClose={onClose}
       />
@@ -144,10 +150,17 @@ export function AddDeviceModal({
       {created ? (
         <div className="flex flex-col gap-4">
           <CopyBlock label="Enrollment token" value={created.token} />
-          <CopyBlock
-            label="Run on the QuartzFire device"
-            value={`set system quartz-command enroll-token '${created.token}'`}
-          />
+          {product === "quartzsonic" ? (
+            <CopyBlock
+              label="Run on the SONiC switch"
+              value={`sudo quartz-sonic enroll '${created.token}'`}
+            />
+          ) : (
+            <CopyBlock
+              label="Run on the QuartzFire device"
+              value={`set system quartz-command enroll-token '${created.token}'`}
+            />
+          )}
           <p className="text-[12px] m-0" style={{ color: "var(--qz-warn)" }}>
             The secret half of this token is stored only as a hash. Once this
             dialog closes it cannot be displayed again — revoke the token and

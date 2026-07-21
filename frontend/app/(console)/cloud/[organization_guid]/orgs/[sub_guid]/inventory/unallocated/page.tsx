@@ -3,5 +3,5 @@
 import { DevicesView } from "@/components/inventory/DevicesView";
 
 export default function SubOrgUnallocatedDevicesPage() {
-  return <DevicesView mode="unallocated" />;
+  return <DevicesView mode="unallocated" product="quartzfire" />;
 }

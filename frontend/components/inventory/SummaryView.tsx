@@ -84,6 +84,14 @@ export function SummaryView() {
         <>
           <div className="flex gap-3 flex-wrap">
             <StatTile label="Devices" value={scopedDevices.length} />
+            <StatTile
+              label="QuartzFire"
+              value={scopedDevices.filter((d) => d.product === "quartzfire").length}
+            />
+            <StatTile
+              label="QuartzSONiC"
+              value={scopedDevices.filter((d) => d.product === "quartzsonic").length}
+            />
             {subGuid ? (
               <StatTile label="Awaiting allocation" value={unallocated} />
             ) : (

@@ -15,6 +15,7 @@ pub mod error;
 pub mod gateway;
 pub mod models;
 pub mod pki;
+pub mod product;
 pub mod security;
 pub mod seed;
 pub mod settings;

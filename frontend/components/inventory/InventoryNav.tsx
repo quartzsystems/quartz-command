@@ -5,9 +5,10 @@ import { useParams, usePathname } from "next/navigation";
 import { ClipboardList, LucideIcon, Package, PackageCheck } from "lucide-react";
 
 /// Secondary navigation for the Inventory section — Summary on top, then the
-/// QuartzFire device views (Allocated / Unallocated). Rendered by the
-/// inventory layouts at both the organization and sub-organization level; the
-/// base path is derived from the route.
+/// per-product device views (QuartzFire and QuartzSONiC, each with
+/// Allocated / Unallocated). Rendered by the inventory layouts at both the
+/// organization and sub-organization level; the base path is derived from the
+/// route.
 export function InventoryNav() {
   const pathname = (usePathname() ?? "/").replace(/\/+$/, "") || "/";
   const params = useParams<{ organization_guid: string; sub_guid?: string }>();
@@ -30,6 +31,19 @@ export function InventoryNav() {
     </Link>
   );
 
+  const section = (label: string) => (
+    <span
+      className="text-[11px] font-semibold uppercase px-[2px] mt-4 mb-1"
+      style={{
+        color: "var(--qz-fg-3)",
+        fontFamily: "var(--qz-font-mono)",
+        letterSpacing: "0.08em",
+      }}
+    >
+      {label}
+    </span>
+  );
+
   return (
     <div
       className="flex-shrink-0 w-[240px]"
@@ -38,18 +52,13 @@ export function InventoryNav() {
       <nav className="sticky top-0 px-3 pt-6 flex flex-col gap-[2px]">
         {item(base, "Summary", ClipboardList, true)}
 
-        <span
-          className="text-[11px] font-semibold uppercase px-[2px] mt-4 mb-1"
-          style={{
-            color: "var(--qz-fg-3)",
-            fontFamily: "var(--qz-font-mono)",
-            letterSpacing: "0.08em",
-          }}
-        >
-          QuartzFire
-        </span>
+        {section("QuartzFire")}
         {item(`${base}/allocated`, "Allocated", PackageCheck)}
         {item(`${base}/unallocated`, "Unallocated", Package)}
+
+        {section("QuartzSONiC")}
+        {item(`${base}/sonic/allocated`, "Allocated", PackageCheck)}
+        {item(`${base}/sonic/unallocated`, "Unallocated", Package)}
       </nav>
     </div>
   );

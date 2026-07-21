@@ -27,6 +27,7 @@ use quartz_command::gateway::pb::enrollment::v1::{
 use quartz_command::gateway::GrpcState;
 use quartz_command::pki::ca::{DeviceCa, DeviceIdentity, DEVICE_CERT_DAYS};
 use quartz_command::pki::deviceid::derive_device_id;
+use quartz_command::product::Product;
 use quartz_command::security;
 
 // ── shared fixtures ─────────────────────────────────────────────────────────
@@ -86,15 +87,19 @@ struct Device {
     device_id: String,
 }
 
-fn new_device() -> Device {
+fn new_device_for(product: Product) -> Device {
     let key = SigningKey::generate(&mut rand::rngs::OsRng);
     let pubkey = key.verifying_key().to_bytes().to_vec();
-    let device_id = derive_device_id(&pubkey);
+    let device_id = derive_device_id(product, &pubkey);
     Device {
         key,
         pubkey,
         device_id,
     }
+}
+
+fn new_device() -> Device {
+    new_device_for(Product::QuartzFire)
 }
 
 /// Build a real Ed25519 CSR with the given CN, signed by `key`.
@@ -285,6 +290,37 @@ async fn token_string_format(pool: PgPool) {
     assert_eq!(parts[4], "sha256:ab12");
 }
 
+// ── product lines ───────────────────────────────────────────────────────────
+
+#[sqlx::test(migrations = "./migrations")]
+async fn quartzsonic_token_enrolls_qs_device(pool: PgPool) {
+    let svc = service(&pool);
+    let org = create_org(&pool).await;
+    let (token_id, secret) = create_token(&pool, org, 24, None).await;
+    sqlx::query("UPDATE enrollment_tokens SET product = 'quartzsonic' WHERE token_id = $1")
+        .bind(&token_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // A QuartzFire-derived identity (QF-…) must not enroll via a QuartzSONiC
+    // token — the server derives the QS-… id and the claim mismatches.
+    let fire = new_device();
+    assert_uniform_rejection(&enroll(&svc, &token_id, &secret, &fire).await.unwrap_err());
+
+    let dev = new_device_for(Product::QuartzSonic);
+    assert!(dev.device_id.starts_with("QS-"));
+    enroll(&svc, &token_id, &secret, &dev).await.expect("sonic enrollment");
+
+    let (product,): (String,) =
+        sqlx::query_as("SELECT product FROM devices WHERE device_id = $1")
+            .bind(&dev.device_id)
+            .fetch_one(&pool)
+            .await
+            .expect("device row");
+    assert_eq!(product, "quartzsonic");
+}
+
 // ── token lifecycle ─────────────────────────────────────────────────────────
 
 #[sqlx::test(migrations = "./migrations")]
@@ -406,7 +442,7 @@ async fn mismatched_device_id_derivation_rejected(pool: PgPool) {
 
     let session = begin(&svc, &token_id, &dev.pubkey).await.expect("begin");
     let mut req = complete_request(&session, &secret, &dev);
-    req.device_id = derive_device_id(&new_device().pubkey); // someone else's id
+    req.device_id = derive_device_id(Product::QuartzFire, &new_device().pubkey); // someone else's id
     assert_uniform_rejection(&complete(&svc, req).await.unwrap_err());
 }
 

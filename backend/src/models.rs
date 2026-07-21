@@ -97,14 +97,20 @@ pub struct EnrollmentTokenMeta {
     /// Sub-organization the token enrolls devices into (NULL = parent org).
     pub sub_org_id: Option<Uuid>,
     pub sub_org_name: Option<String>,
+    /// Product line the token enrolls ("quartzfire" / "quartzsonic").
+    pub product: String,
 }
 
-/// An enrolled QuartzFire device as shown in the Inventory section. The raw
-/// public key stays server-side; the device_id already commits to it.
+/// An enrolled device (QuartzFire firewall or QuartzSONiC switch) as shown in
+/// the Inventory section. The raw public key stays server-side; the device_id
+/// already commits to it.
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct Device {
     pub device_id: String,
     pub state: String,
+    /// Product line ("quartzfire" / "quartzsonic"), stamped at adoption from
+    /// the enrollment token.
+    pub product: String,
     pub hostname: Option<String>,
     pub qf_version: Option<String>,
     pub cert_serial: Option<String>,

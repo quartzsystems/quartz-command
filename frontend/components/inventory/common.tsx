@@ -14,8 +14,15 @@ import {
   type DeviceFolder,
   type EnrollmentToken,
   type MemberOrganization,
+  type Product,
   type SubOrganization,
 } from "@/lib/api";
+
+/// Display names for the product lines (nav sections, blurbs, token table).
+export const PRODUCT_LABEL: Record<Product, string> = {
+  quartzfire: "QuartzFire",
+  quartzsonic: "QuartzSONiC",
+};
 
 /// Org-wide devices + enrollment tokens for the Inventory section, plus the
 /// current scope (organization, or a sub-organization when the route carries a
@@ -283,6 +290,13 @@ export function buildTokenColumns(opts: { showScope: boolean }): Column<Enrollme
     { key: "token_id", header: "Token", value: (r) => r.token_id, mono: true, sortable: true, width: 160 },
     { key: "label", header: "Label", value: (r) => r.label },
     {
+      key: "product",
+      header: "Product",
+      value: (r) => PRODUCT_LABEL[r.product] ?? r.product,
+      sortable: true,
+      width: 110,
+    },
+    {
       key: "status",
       header: "Status",
       value: (r) => tokenStatus(r),
@@ -310,7 +324,7 @@ export function buildTokenColumns(opts: { showScope: boolean }): Column<Enrollme
   ];
   if (opts.showScope) {
     // Where enrolled devices land: a sub-organization, or the top-level pool.
-    cols.splice(2, 0, {
+    cols.splice(3, 0, {
       key: "enrolls_into",
       header: "Enrolls into",
       value: (r) => r.sub_org_name ?? "Unallocated",

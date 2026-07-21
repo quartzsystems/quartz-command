@@ -25,6 +25,7 @@ use crate::gateway::pb::enrollment::v1::{
 };
 use crate::gateway::GrpcState;
 use crate::pki::deviceid;
+use crate::product::Product;
 use crate::{audit, security};
 
 /// Enrollment sessions live 5 minutes.
@@ -60,6 +61,9 @@ struct TokenRow {
     revoked_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Sub-organization the token allocates enrolled devices to, if any.
     sub_org_id: Option<Uuid>,
+    /// Product line the token enrolls ("quartzfire" / "quartzsonic") — decides
+    /// the expected device-ID prefix and is stamped onto the device row.
+    product: String,
 }
 
 impl TokenRow {
@@ -79,7 +83,8 @@ impl TokenRow {
 
 async fn load_token(db: &PgPool, token_id: &str) -> Result<Option<TokenRow>, Status> {
     sqlx::query_as::<_, TokenRow>(
-        "SELECT org_id, secret_hash, expires_at, max_uses, use_count, revoked_at, sub_org_id \
+        "SELECT org_id, secret_hash, expires_at, max_uses, use_count, revoked_at, sub_org_id, \
+                product \
          FROM enrollment_tokens WHERE token_id = $1",
     )
     .bind(token_id)
@@ -239,8 +244,11 @@ impl EnrollmentService for EnrollmentGrpc {
         }
 
         // The claimed device_id must be the canonical derivation of the key
-        // presented at BeginEnrollment.
-        let derived = deviceid::derive_device_id(&device_pubkey);
+        // presented at BeginEnrollment, for the token's product line — a
+        // QuartzSONiC token only ever adopts a QS-… identity (and vice versa).
+        let product = Product::parse(&token.product)
+            .ok_or_else(|| internal(format!("unknown product {:?} on token", token.product)))?;
+        let derived = deviceid::derive_device_id(product, &device_pubkey);
         if derived != req.device_id {
             reject!(Some(org_id), "device_id_mismatch",
                     { "claimed": req.device_id, "token_id": token_id });
@@ -319,15 +327,16 @@ impl EnrollmentService for EnrollmentGrpc {
         sqlx::query(
             "INSERT INTO devices (device_id, org_id, pubkey, cert_serial, cert_not_after, state, \
                                   enrolled_at, enrolled_via_token, hostname, qf_version, \
-                                  last_seen_at, last_seen_ip, sub_org_id) \
-             VALUES ($1, $2, $3, $4, $5, 'adopted', now(), $6, $7, $8, now(), $9, $10) \
+                                  last_seen_at, last_seen_ip, sub_org_id, product) \
+             VALUES ($1, $2, $3, $4, $5, 'adopted', now(), $6, $7, $8, now(), $9, $10, $11) \
              ON CONFLICT (device_id) DO UPDATE SET \
                pubkey = EXCLUDED.pubkey, cert_serial = EXCLUDED.cert_serial, \
                cert_not_after = EXCLUDED.cert_not_after, state = 'adopted', \
                enrolled_at = now(), enrolled_via_token = EXCLUDED.enrolled_via_token, \
                hostname = EXCLUDED.hostname, qf_version = EXCLUDED.qf_version, \
                last_seen_at = now(), last_seen_ip = EXCLUDED.last_seen_ip, \
-               sub_org_id = COALESCE(EXCLUDED.sub_org_id, devices.sub_org_id)",
+               sub_org_id = COALESCE(EXCLUDED.sub_org_id, devices.sub_org_id), \
+               product = EXCLUDED.product",
         )
         .bind(&derived)
         .bind(org_id)
@@ -339,6 +348,7 @@ impl EnrollmentService for EnrollmentGrpc {
         .bind(&req.qf_version)
         .bind(&ip)
         .bind(token.sub_org_id)
+        .bind(product.as_str())
         .execute(&mut *tx)
         .await
         .map_err(internal)?;
@@ -351,6 +361,7 @@ impl EnrollmentService for EnrollmentGrpc {
             &format!("device:{derived}"),
             "enrollment.succeeded",
             json!({ "device_id": derived, "token_id": token_id,
+                    "product": product.as_str(),
                     "hostname": req.hostname, "qf_version": req.qf_version,
                     "source_ip": ip }),
         )

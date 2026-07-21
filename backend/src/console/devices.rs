@@ -30,7 +30,7 @@ pub async fn list(
     member_org(&state, organization_guid, uid).await?;
 
     let mut devices = sqlx::query_as::<_, Device>(
-        "SELECT d.device_id, d.state, d.hostname, d.qf_version, d.cert_serial, d.cert_not_after, \
+        "SELECT d.device_id, d.state, d.product, d.hostname, d.qf_version, d.cert_serial, d.cert_not_after, \
                 d.enrolled_at, d.enrolled_via_token, d.last_seen_at, d.last_seen_ip, \
                 d.sub_org_id, s.name AS sub_org_name, \
                 d.folder_id, f.name AS folder_name \

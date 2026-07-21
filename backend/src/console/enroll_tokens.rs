@@ -18,6 +18,7 @@ use crate::{
     console::organizations::{member_org, require_sub_org},
     error::{AppError, Result},
     models::EnrollmentTokenMeta,
+    product::Product,
     security::{self, Claims},
     AppState,
 };
@@ -89,6 +90,9 @@ pub struct CreateTokenRequest {
     /// Sub-organization devices enrolled via this token are allocated to;
     /// None enrolls into the parent org's unallocated pool.
     sub_org_id: Option<Uuid>,
+    /// Product line the token enrolls ("quartzfire" / "quartzsonic");
+    /// None defaults to QuartzFire.
+    product: Option<String>,
 }
 
 /// POST /api/orgs/:organization_guid/enroll-tokens — owner/admin only.
@@ -115,6 +119,11 @@ pub async fn create(
     if let Some(sub) = body.sub_org_id {
         require_sub_org(&state, organization_guid, sub).await?;
     }
+    let product = match body.product.as_deref() {
+        None => Product::QuartzFire,
+        Some(s) => Product::parse(s)
+            .ok_or_else(|| AppError::BadRequest(format!("unknown product {s:?}")))?,
+    };
 
     let token_id = generate_token_id();
     let secret = generate_secret();
@@ -126,12 +135,14 @@ pub async fn create(
 
     let meta: EnrollmentTokenMeta = sqlx::query_as(
         "INSERT INTO enrollment_tokens \
-           (token_id, org_id, secret_hash, created_by, expires_at, max_uses, label, sub_org_id) \
-         VALUES ($1, $2, $3, $4, now() + make_interval(hours => $5), $6, $7, $8) \
+           (token_id, org_id, secret_hash, created_by, expires_at, max_uses, label, sub_org_id, \
+            product) \
+         VALUES ($1, $2, $3, $4, now() + make_interval(hours => $5), $6, $7, $8, $9) \
          RETURNING token_id, label, created_at, expires_at, max_uses, use_count, revoked_at, \
                    (SELECT email FROM users WHERE id = created_by) AS created_by_email, \
                    sub_org_id, \
-                   (SELECT name FROM organizations WHERE id = sub_org_id) AS sub_org_name",
+                   (SELECT name FROM organizations WHERE id = sub_org_id) AS sub_org_name, \
+                   product",
     )
     .bind(&token_id)
     .bind(organization_guid)
@@ -141,6 +152,7 @@ pub async fn create(
     .bind(body.max_uses)
     .bind(label)
     .bind(body.sub_org_id)
+    .bind(product.as_str())
     .fetch_one(&state.db)
     .await?;
 
@@ -162,7 +174,7 @@ pub async fn create(
         "token.created",
         json!({ "token_id": token_id, "label": label,
                 "expires_hours": expires_hours, "max_uses": body.max_uses,
-                "sub_org_id": body.sub_org_id }),
+                "sub_org_id": body.sub_org_id, "product": product.as_str() }),
     )
     .await;
     tracing::info!(%token_id, org = %organization_guid, "enrollment token created");
@@ -183,7 +195,8 @@ pub async fn list(
 
     let tokens = sqlx::query_as::<_, EnrollmentTokenMeta>(
         "SELECT t.token_id, t.label, t.created_at, t.expires_at, t.max_uses, t.use_count, \
-                t.revoked_at, u.email AS created_by_email, t.sub_org_id, s.name AS sub_org_name \
+                t.revoked_at, u.email AS created_by_email, t.sub_org_id, s.name AS sub_org_name, \
+                t.product \
          FROM enrollment_tokens t \
          LEFT JOIN users u ON u.id = t.created_by \
          LEFT JOIN organizations s ON s.id = t.sub_org_id \
