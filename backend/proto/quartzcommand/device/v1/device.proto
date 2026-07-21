@@ -177,6 +177,21 @@ message DeviceStats {
   // descending by the agent and capped to a small set (~8). Cumulative
   // counters (Prometheus-counter semantics), reset when the ruleset reloads.
   repeated PolicyStat top_policies = 8;
+
+  // Absolute memory and disk figures (bytes), so the console can show the
+  // WebUI's "Used / Free / Total" alongside the percentages. Zero when the
+  // agent doesn't report them (older builds) — the console then shows only the
+  // percentage. mem_* is RAM; disk_* is the root filesystem.
+  //
+  // Free is derived as total − used (so it includes any reserved space), NOT a
+  // separate avail figure — this matches the WebUI card. Note disk_pct stays
+  // df's used/(used+avail), so it won't exactly equal disk_used_bytes /
+  // disk_total_bytes when the root fs has reserved blocks; the gauge and the
+  // byte figures are independent readings.
+  uint64 mem_used_bytes = 9;
+  uint64 mem_total_bytes = 10;
+  uint64 disk_used_bytes = 11;
+  uint64 disk_total_bytes = 12;
 }
 
 // One firewall policy/rule's cumulative traffic counters.

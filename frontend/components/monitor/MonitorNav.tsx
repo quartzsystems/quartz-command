@@ -5,16 +5,20 @@ import { useParams, usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Activity,
+  AppWindow,
   ClipboardList,
   ChevronDown,
   ChevronRight,
+  Filter,
   Globe,
   LayoutDashboard,
+  LayoutGrid,
   Lock,
   LucideIcon,
   Route,
   ScrollText,
   Share2,
+  ShieldAlert,
   ShieldCheck,
   Spline,
   Waypoints,
@@ -37,7 +41,10 @@ interface NavGroup {
   icon: LucideIcon;
   /** Group prefix under the monitor base (also the default-open test). */
   segment: string;
+  /** Children of a collapsible group; empty renders the group as a direct link. */
   children: NavChild[];
+  /** For a childless direct-link group: match the base exactly, not by prefix. */
+  exact?: boolean;
 }
 
 /// Monitor sub-navigation, grouped into Dashboard / Logs / Routing / VPN. The
@@ -47,13 +54,22 @@ interface NavGroup {
 /// Routing and VPN mirror the QuartzFire local UI's live Status panels.
 const GROUPS: NavGroup[] = [
   {
-    id: "dashboard",
-    label: "Dashboard",
-    icon: LayoutDashboard,
+    id: "overview",
+    label: "Overview",
+    icon: ClipboardList,
     segment: "",
+    exact: true,
+    children: [],
+  },
+  {
+    id: "dashboards",
+    label: "Dashboards",
+    icon: LayoutDashboard,
+    segment: "/traffic-flow",
     children: [
-      { id: "overview",     label: "Overview",     segment: "",               icon: ClipboardList, exact: true },
-      { id: "traffic-flow", label: "Traffic Flow", segment: "/traffic-flow",  icon: Share2 },
+      { id: "traffic-flow",    label: "Traffic Flow",    segment: "/traffic-flow",    icon: Share2 },
+      { id: "quartzwatch",     label: "QuartzWatch",     segment: "/quartzwatch",     icon: LayoutGrid },
+      { id: "geolocation-map", label: "Geolocation Map", segment: "/geolocation-map", icon: Globe },
     ],
   },
   {
@@ -62,7 +78,11 @@ const GROUPS: NavGroup[] = [
     icon: ScrollText,
     segment: "/logs",
     children: [
-      { id: "traffic-monitor", label: "Traffic Monitor", segment: "/logs", icon: Activity },
+      { id: "traffic-monitor",   label: "Traffic Monitor",     segment: "/logs",                     icon: Activity, exact: true },
+      { id: "ips-log",           label: "Intrusion Prevention", segment: "/logs/ips",                 icon: ShieldAlert },
+      { id: "appcontrol-log",    label: "Application Control",  segment: "/logs/application-control", icon: AppWindow },
+      { id: "geolocation-log",   label: "Geolocation",         segment: "/logs/geolocation",         icon: Globe },
+      { id: "content-log",       label: "Content Filtering",   segment: "/logs/content-filtering",   icon: Filter },
     ],
   },
   {
@@ -98,15 +118,15 @@ export function MonitorNav() {
     ? `/cloud/${params.organization_guid}/orgs/${params.sub_guid}/devices/${params.device_id}/monitor`
     : `/cloud/${params.organization_guid}/orgs/${params.sub_guid}/monitor`;
 
-  // Open if explicitly toggled, else default-open on the active subtree. The
-  // Dashboard group has an empty prefix (it owns the base), so it is open
-  // whenever nothing deeper is active.
+  // Open if explicitly toggled, else default-open when one of the group's
+  // children is the active route (children needn't share a path prefix).
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
-  const isOpen = (g: NavGroup) =>
-    openMenus[g.id] ??
-    (g.segment === ""
-      ? !GROUPS.some((o) => o.segment !== "" && pathname.startsWith(base + o.segment))
-      : pathname.startsWith(base + g.segment));
+  const childActive = (g: NavGroup) =>
+    g.children.some((c) => {
+      const href = base + c.segment;
+      return c.exact ? pathname === href : pathname.startsWith(href);
+    });
+  const isOpen = (g: NavGroup) => openMenus[g.id] ?? childActive(g);
 
   const groupClass =
     "flex items-center gap-[10px] px-[10px] py-[8px] rounded-md text-[13.5px] font-medium border border-transparent text-[var(--qz-fg-3)] transition-all duration-[120ms] no-underline w-full text-left cursor-pointer hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]";
@@ -116,6 +136,28 @@ export function MonitorNav() {
       <nav className="sticky top-0 px-3 pt-6 flex flex-col gap-[2px]">
         {GROUPS.map((group) => {
           const Icon = group.icon;
+
+          // A childless group is a direct top-level link (the Overview page).
+          if (group.children.length === 0) {
+            const href = base + group.segment;
+            const active = group.exact ? pathname === href : pathname.startsWith(href);
+            return (
+              <Link
+                key={group.id}
+                href={href}
+                className={[
+                  groupClass,
+                  active
+                    ? "bg-[var(--qz-accent-soft)] text-[var(--qz-accent)] border-[color-mix(in_oklab,var(--qz-accent)_30%,transparent)]"
+                    : "",
+                ].join(" ")}
+              >
+                <Icon size={16} />
+                <span className="flex-1">{group.label}</span>
+              </Link>
+            );
+          }
+
           const open = isOpen(group);
           return (
             <div key={group.id}>

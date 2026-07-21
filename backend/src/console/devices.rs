@@ -110,7 +110,8 @@ pub async fn device_stats(
 
     let latest = sqlx::query_as::<_, DeviceStats>(
         "SELECT device_id, time_unix, cpu_pct, mem_pct, disk_pct, uptime_secs, \
-                public_ip, top_policies, received_at \
+                public_ip, mem_used_bytes, mem_total_bytes, disk_used_bytes, \
+                disk_total_bytes, top_policies, received_at \
          FROM device_stats WHERE device_id = $1",
     )
     .bind(&device_id)

@@ -198,6 +198,12 @@ pub struct DeviceStats {
     pub uptime_secs: i64,
     /// Public/WAN IP as the device sees itself ("" when undetermined).
     pub public_ip: String,
+    /// Absolute RAM and root-filesystem figures (bytes), 0 when the agent
+    /// doesn't report them — the console then shows only the percentage.
+    pub mem_used_bytes: i64,
+    pub mem_total_bytes: i64,
+    pub disk_used_bytes: i64,
+    pub disk_total_bytes: i64,
     /// Top firewall policies by traffic (already sorted desc, capped).
     pub top_policies: Json<Vec<PolicyStat>>,
     pub received_at: DateTime<Utc>,

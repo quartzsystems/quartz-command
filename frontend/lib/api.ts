@@ -269,6 +269,12 @@ export interface DeviceStats {
   uptime_secs: number;
   /** Public/WAN IP as the device sees itself ("" when undetermined). */
   public_ip: string;
+  /** Absolute RAM and root-filesystem figures (bytes), 0 when the agent
+   *  doesn't report them — the overview then shows only the percentage. */
+  mem_used_bytes: number;
+  mem_total_bytes: number;
+  disk_used_bytes: number;
+  disk_total_bytes: number;
   /** Top firewall policies by traffic (already sorted desc, capped). */
   top_policies: PolicyStat[];
   received_at: string;

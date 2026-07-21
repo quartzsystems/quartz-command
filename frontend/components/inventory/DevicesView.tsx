@@ -229,6 +229,7 @@ export function DevicesView({ mode }: { mode: "allocated" | "unallocated" }) {
             searchPlaceholder="Search devices…"
             emptyMessage={emptyMessage}
             onRefresh={() => load("refresh")}
+            actionsWidth={160}
             toolbar={
               mode === "unallocated" ? (
                 <Button kind="primary" size="sm" icon={Plus} onClick={() => setAdding(true)}>

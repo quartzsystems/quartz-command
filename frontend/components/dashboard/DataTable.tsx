@@ -43,6 +43,7 @@ export function DataTable<T>({
   emptyMessage = "No rows.",
   toolbar,
   actions,
+  actionsWidth = 90,
   onRefresh,
   storageKey,
 }: {
@@ -56,6 +57,10 @@ export function DataTable<T>({
   toolbar?: React.ReactNode;
   /** Trailing per-row actions cell (e.g. edit/delete). Does not trigger row selection. */
   actions?: (row: T) => React.ReactNode;
+  /** Width (px) of the trailing actions column. Widen it for rows with many
+   *  icons (each ~28px) or an inline confirm that expands to extra buttons —
+   *  the default only fits ~2 icons and clips beyond that. */
+  actionsWidth?: number;
   /** When provided, renders a Refresh button that re-runs this in place (spinner managed here). */
   onRefresh?: () => void | Promise<void>;
   /** Namespace for persisting column layout (order/width/visibility). Falls back to the column set. */
@@ -528,7 +533,7 @@ export function DataTable<T>({
             {visibleCols.map((c) => (
               <col key={c.key} style={{ width: colWidth(c) }} />
             ))}
-            {actions && <col style={{ width: 90 }} />}
+            {actions && <col style={{ width: actionsWidth }} />}
           </colgroup>
           <thead>
             <tr>
@@ -606,7 +611,7 @@ export function DataTable<T>({
                   )}
                 </th>
               ))}
-              {actions && <th style={{ width: 90 }} className="text-right">Actions</th>}
+              {actions && <th style={{ width: actionsWidth }} className="text-right">Actions</th>}
             </tr>
           </thead>
           <tbody>

@@ -225,14 +225,18 @@ async fn store_device_stats(state: &GrpcState, device_id: &str, s: &DeviceStats)
     let res = sqlx::query(
         "INSERT INTO device_stats ( \
             device_id, time_unix, interval_secs, cpu_pct, mem_pct, disk_pct, \
-            uptime_secs, public_ip, top_policies, received_at) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now()) \
+            uptime_secs, public_ip, mem_used_bytes, mem_total_bytes, \
+            disk_used_bytes, disk_total_bytes, top_policies, received_at) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now()) \
          ON CONFLICT (device_id) DO UPDATE SET \
             time_unix = EXCLUDED.time_unix, interval_secs = EXCLUDED.interval_secs, \
             cpu_pct = EXCLUDED.cpu_pct, mem_pct = EXCLUDED.mem_pct, \
             disk_pct = EXCLUDED.disk_pct, uptime_secs = EXCLUDED.uptime_secs, \
-            public_ip = EXCLUDED.public_ip, top_policies = EXCLUDED.top_policies, \
-            received_at = now()",
+            public_ip = EXCLUDED.public_ip, mem_used_bytes = EXCLUDED.mem_used_bytes, \
+            mem_total_bytes = EXCLUDED.mem_total_bytes, \
+            disk_used_bytes = EXCLUDED.disk_used_bytes, \
+            disk_total_bytes = EXCLUDED.disk_total_bytes, \
+            top_policies = EXCLUDED.top_policies, received_at = now()",
     )
     .bind(device_id)
     .bind(s.time_unix)
@@ -242,6 +246,10 @@ async fn store_device_stats(state: &GrpcState, device_id: &str, s: &DeviceStats)
     .bind(disk)
     .bind(s.uptime_secs)
     .bind(&s.public_ip)
+    .bind(i64c(s.mem_used_bytes))
+    .bind(i64c(s.mem_total_bytes))
+    .bind(i64c(s.disk_used_bytes))
+    .bind(i64c(s.disk_total_bytes))
     .bind(policies)
     .execute(&state.db)
     .await;

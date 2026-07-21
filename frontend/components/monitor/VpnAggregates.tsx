@@ -128,10 +128,16 @@ export function IpsecAggregate() {
 
 export function L2tpAggregate() {
   const { orgGuid, subGuid } = useScope();
-  const loader = useCallback(
-    () => fanoutShow(orgGuid, subGuid, ["vpn", "remote-access"]),
-    [orgGuid, subGuid],
-  );
+  // Prefer the unified `show vpn remote-access`; older builds only have
+  // `show l2tp-server sessions` and reject the former ("Invalid command"), so
+  // per firewall fall back to it — mirroring the device-scope L2tpStatusPanel.
+  const loader = useCallback(async () => {
+    const primary = await fanoutShow(orgGuid, subGuid, ["vpn", "remote-access"]);
+    if (!primary.some((it) => it.data == null)) return primary;
+    const fallback = await fanoutShow(orgGuid, subGuid, ["l2tp-server", "sessions"]);
+    const byId = new Map(fallback.map((it) => [it.deviceId, it]));
+    return primary.map((it) => (it.data == null ? byId.get(it.deviceId) ?? it : it));
+  }, [orgGuid, subGuid]);
   const agg = useAggregate(loader);
   const deviceHref = useDeviceMonitorHref("/vpn/l2tp");
   const isActive = (s: string) => {

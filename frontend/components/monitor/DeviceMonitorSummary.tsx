@@ -160,13 +160,15 @@ export function DeviceMonitorSummary() {
             label="Memory Usage"
             value={latest?.mem_pct}
             series={samples.map((s) => s.mem_pct)}
-            color="var(--qz-info)"
+            color="var(--qz-accent)"
+            detail={memDetail(latest)}
           />
           <StatMeter
             label="Disk Usage"
             value={latest?.disk_pct}
             series={samples.map((s) => s.disk_pct)}
-            color="var(--qz-warn)"
+            color="var(--qz-accent)"
+            detail={diskDetail(latest)}
           />
         </section>
       </div>
@@ -204,17 +206,21 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
   );
 }
 
-/// One resource gauge: a percentage plus its rolling sparkline.
+/// One resource gauge: a percentage plus its rolling sparkline, and — when the
+/// firewall reports absolute figures — a muted "used / free / total" line.
 function StatMeter({
   label,
   value,
   series,
   color,
+  detail,
 }: {
   label: string;
   value: number | undefined;
   series: number[];
   color: string;
+  /** Absolute-figures line (e.g. "2.02 GB used · 60.5 GB free · 62.5 GB total"). */
+  detail?: string | null;
 }) {
   return (
     <div className="flex flex-col gap-1">
@@ -227,8 +233,26 @@ function StatMeter({
           {value == null ? "—" : `${Math.round(value)}%`}
         </span>
       </div>
+      {detail && (
+        <span className="text-[11px] tabular-nums" style={{ color: "var(--qz-fg-4)" }}>
+          {detail}
+        </span>
+      )}
     </div>
   );
+}
+
+/// "used · free · total" for RAM, or null when the firewall didn't report bytes.
+function memDetail(latest: api.DeviceStats | null): string | null {
+  if (!latest || latest.mem_total_bytes <= 0) return null;
+  const free = Math.max(0, latest.mem_total_bytes - latest.mem_used_bytes);
+  return `${formatBytes(latest.mem_used_bytes)} used · ${formatBytes(free)} free · ${formatBytes(latest.mem_total_bytes)} total`;
+}
+
+/// "used of total" for the root filesystem, or null when bytes weren't reported.
+function diskDetail(latest: api.DeviceStats | null): string | null {
+  if (!latest || latest.disk_total_bytes <= 0) return null;
+  return `${formatBytes(latest.disk_used_bytes)} of ${formatBytes(latest.disk_total_bytes)}`;
 }
 
 /// Most Active Policies: firewall rules ranked by traffic (bytes) and hits.
@@ -243,7 +267,7 @@ function MostActivePolicies({
 }) {
   return (
     <section className="surface p-5 flex flex-col gap-4">
-      <h2 className="text-[14px] font-semibold text-[var(--qz-fg-1)] m-0">Most Active Policies</h2>
+      <h2 className="text-[14px] font-semibold text-[var(--qz-fg-1)] m-0">Most Active Rules</h2>
       {policies.length === 0 ? (
         <p className="text-[12.5px] m-0" style={{ color: "var(--qz-fg-4)" }}>
           {error

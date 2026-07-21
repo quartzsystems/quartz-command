@@ -162,6 +162,10 @@ body {
   top: 0;
   z-index: 1;
 }
+/* `.qz-table th` sets text-align:left, which outspecifies the `text-right`
+   utility class — so a right-aligned column's header would stay left while its
+   values (on td, not force-aligned) go right. This re-aligns such headers. */
+.qz-table th.text-right { text-align: right; }
 .qz-table td {
   padding: 12px 14px;
   border-bottom: 1px solid var(--qz-divider);
