@@ -1,8 +1,8 @@
 "use client";
 
-import { RefreshCw, RotateCcw } from "lucide-react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCloudOrg } from "@/components/CloudShell";
 import { Toast } from "@/components/dashboard/Toast";
 import {
@@ -12,9 +12,17 @@ import {
   IntrusionPreventionCard,
 } from "@/components/monitor/ServiceCards";
 import { Sparkline } from "@/components/monitor/Sparkline";
+import { ModalHeader, ModalShell } from "@/components/ui/Modal";
 import * as api from "@/lib/api";
 import type { DeviceStatsResponse } from "@/lib/api";
 import { formatVersion } from "@/components/fleet/firmware";
+import {
+  counterKey,
+  fetchFirewall,
+  fetchRuleCounters,
+  type FirewallRule,
+  type RuleCounter,
+} from "@/lib/device/firewall";
 import { formatBytes, formatUptime } from "@/lib/device/format";
 import { useMonitorTelemetry } from "@/lib/monitor/telemetry";
 
@@ -22,9 +30,13 @@ const STATS_POLL_MS = 30_000;
 
 /// Device Monitor overview. Top row: identity + reboot, device information, and
 /// CPU/memory/disk sparklines. Then the live security-service cards scoped to
-/// this one firewall, and the Most Active Policies table. Health, stats, and
-/// policies come from the device-stats snapshot the firewall pushes over its
-/// control stream; the security cards from the security-telemetry snapshot.
+/// this one firewall, and the Most Active Rules table. Health and stats come
+/// from the device-stats snapshot the firewall pushes over its control stream;
+/// the security cards from the security-telemetry snapshot. Most Active Rules
+/// reads the device's live firewall config and per-rule counters through the
+/// proxy (the same source as the Rules page), so it shows the user's named
+/// rules and the default action — not the raw nftables chains the agent's
+/// top_policies telemetry reports.
 export function DeviceMonitorSummary() {
   const { orgGuid, org, subs, devices, refreshDevices } = useCloudOrg();
   const params = useParams<{ sub_guid?: string; device_id?: string }>();
@@ -59,15 +71,14 @@ export function DeviceMonitorSummary() {
 
   const latest = stats?.latest ?? null;
   const samples = stats?.samples ?? [];
-  const policies = latest?.top_policies ?? [];
   const publicIp = latest?.public_ip || device?.last_seen_ip || "—";
 
   // ── Reboot ─────────────────────────────────────────────────────────────────
   const [rebooting, setRebooting] = useState(false);
+  const [confirmReboot, setConfirmReboot] = useState(false);
   const [toast, setToast] = useState("");
   const reboot = useCallback(async () => {
     if (!device) return;
-    if (!window.confirm(`Reboot ${name}? It will drop offline for a minute or two.`)) return;
     setRebooting(true);
     try {
       await api.rebootDevice(orgGuid, deviceId);
@@ -78,6 +89,7 @@ export function DeviceMonitorSummary() {
       setToast(e instanceof Error ? e.message : "Reboot failed.");
     } finally {
       setRebooting(false);
+      setConfirmReboot(false);
     }
   }, [device, name, orgGuid, deviceId, refreshDevices]);
 
@@ -119,7 +131,7 @@ export function DeviceMonitorSummary() {
           </div>
           <button
             type="button"
-            onClick={reboot}
+            onClick={() => setConfirmReboot(true)}
             disabled={rebootDisabled}
             title={rebootTitle}
             className="flex items-center gap-[7px] px-3 py-[7px] rounded-md text-[12.5px] font-medium border transition-all duration-[120ms] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 text-[var(--qz-fg-2)] border-[var(--qz-border)] hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]"
@@ -181,11 +193,79 @@ export function DeviceMonitorSummary() {
         <ContentFilteringCard t={telemetry} />
       </div>
 
-      {/* Level 3: most active policies */}
-      <MostActivePolicies policies={policies} error={statsError} reported={latest != null} />
+      {/* Level 3: most active rules (live per-rule counters via the proxy) */}
+      <MostActiveRules deviceId={deviceId} connected={connected} />
 
+      {confirmReboot && (
+        <RebootConfirmModal
+          name={name}
+          working={rebooting}
+          onCancel={() => setConfirmReboot(false)}
+          onConfirm={reboot}
+        />
+      )}
       {toast && <Toast message={toast} onDismiss={() => setToast("")} />}
     </div>
+  );
+}
+
+/// Themed replacement for window.confirm on the reboot action, so the warning
+/// reads inside the console instead of a bare browser dialog. Backdrop/Escape
+/// closes are ignored while the command is in flight (the parent unmounts this
+/// once the reboot is sent).
+function RebootConfirmModal({
+  name,
+  working,
+  onCancel,
+  onConfirm,
+}: {
+  name: string;
+  working: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const close = () => {
+    if (!working) onCancel();
+  };
+  return (
+    <ModalShell onClose={close} maxWidth={440}>
+      <ModalHeader title="Reboot device" onClose={close} />
+      <div className="flex flex-col gap-4">
+        <div
+          className="flex gap-3 rounded-md px-3 py-3"
+          style={{
+            background: "var(--qz-warn-soft)",
+            border: "1px solid color-mix(in oklab, var(--qz-warn) 35%, transparent)",
+          }}
+        >
+          <AlertTriangle size={16} className="flex-shrink-0 mt-[1px]" style={{ color: "var(--qz-warn)" }} />
+          <p className="text-[13px] text-[var(--qz-fg-2)] m-0">
+            Reboot <span className="font-semibold text-[var(--qz-fg-1)]">{name}</span>? It will drop offline for a
+            minute or two.
+          </p>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={close}
+            disabled={working}
+            className="px-4 py-[9px] rounded-md text-[13px] font-medium cursor-pointer disabled:opacity-50"
+            style={{ background: "transparent", border: "1px solid var(--qz-border)", color: "var(--qz-fg-2)" }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={working}
+            className="px-4 py-[9px] rounded-md text-[13px] font-semibold cursor-pointer border-0 disabled:opacity-70"
+            style={{ background: "var(--qz-warn)", color: "white" }}
+          >
+            {working ? "Rebooting…" : "Reboot"}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -255,26 +335,82 @@ function diskDetail(latest: api.DeviceStats | null): string | null {
   return `${formatBytes(latest.disk_used_bytes)} of ${formatBytes(latest.disk_total_bytes)}`;
 }
 
-/// Most Active Policies: firewall rules ranked by traffic (bytes) and hits.
-function MostActivePolicies({
-  policies,
-  error,
-  reported,
-}: {
-  policies: api.PolicyStat[];
-  error: boolean;
-  reported: boolean;
-}) {
+/** One ranked line in the Most Active Rules table. */
+type RuleRow = { name: string; bytes: number; hits: number; muted?: boolean };
+
+/// Most Active Rules: the device's firewall rules ranked by traffic, read from
+/// the live config and per-rule counters through the proxy — the same source
+/// the Rules page uses — plus the forward default action pinned at the bottom.
+/// This is the accurate view: the agent's top_policies telemetry reports raw
+/// nftables chains (state-policy, raw/mangle default-actions) that crowd out
+/// the user's own rules, so we don't use it here. Refreshed on the device
+/// cadence; needs the device online since it proxies live counters.
+function MostActiveRules({ deviceId, connected }: { deviceId: string; connected: boolean }) {
+  // How many rule rows to show before the default-action row.
+  const MAX_RULES = 12;
+  const [rows, setRows] = useState<RuleRow[] | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!deviceId || !connected) {
+      setRows(null);
+      setError(false);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const fw = await fetchFirewall();
+        // Counters depend on the zone pairs the config reports.
+        const counters = await fetchRuleCounters(fw.zone_pairs);
+        if (cancelled) return;
+        // A rule spanning several zone pairs is counted once per pair — its
+        // real total is the sum across its scopes (see the Rules page).
+        const ruleRows: RuleRow[] = fw.rules
+          .map((r: FirewallRule) => {
+            const parts = r.scopes
+              .map((s) => counters.get(counterKey(s.chain, r.rule)))
+              .filter((c): c is RuleCounter => c !== undefined);
+            const c = parts.reduce(
+              (a, b) => ({ packets: a.packets + b.packets, bytes: a.bytes + b.bytes }),
+              { packets: 0, bytes: 0 },
+            );
+            return { name: r.name || `Rule ${r.rule}`, bytes: c.bytes, hits: c.packets };
+          })
+          .sort((a, b) => b.bytes - a.bytes || b.hits - a.hits)
+          .slice(0, MAX_RULES);
+        // The forward default action — what forwarded traffic matching no rule
+        // gets. Its counter uses the `default` pseudo-rule key.
+        const dflt = counters.get(counterKey("forward", "default"));
+        ruleRows.push({
+          name: `Default action · ${fw.default_action === "drop" ? "Deny" : "Allow"}`,
+          bytes: dflt?.bytes ?? 0,
+          hits: dflt?.packets ?? 0,
+          muted: true,
+        });
+        setRows(ruleRows);
+        setError(false);
+      } catch {
+        if (!cancelled) {
+          setError(true);
+          setRows(null);
+        }
+      }
+    };
+    load();
+    const t = setInterval(load, STATS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [deviceId, connected]);
+
   return (
     <section className="surface p-5 flex flex-col gap-4">
       <h2 className="text-[14px] font-semibold text-[var(--qz-fg-1)] m-0">Most Active Rules</h2>
-      {policies.length === 0 ? (
+      {rows === null ? (
         <p className="text-[12.5px] m-0" style={{ color: "var(--qz-fg-4)" }}>
-          {error
-            ? "Policy telemetry unavailable."
-            : reported
-              ? "No policy activity reported."
-              : "This firewall has not reported telemetry yet."}
+          {!connected ? "Firewall is offline." : error ? "Rule telemetry unavailable." : "Loading rules…"}
         </p>
       ) : (
         <table className="w-full border-collapse text-[13px]">
@@ -292,9 +428,13 @@ function MostActivePolicies({
             </tr>
           </thead>
           <tbody>
-            {policies.map((p, i) => (
+            {rows.map((p, i) => (
               <tr key={`${p.name}-${i}`} style={{ borderBottom: "1px solid var(--qz-border)" }}>
-                <td className="py-[7px] text-[var(--qz-fg-1)] truncate max-w-[420px]" title={p.name}>
+                <td
+                  className="py-[7px] truncate max-w-[420px]"
+                  style={{ color: p.muted ? "var(--qz-fg-3)" : "var(--qz-fg-1)" }}
+                  title={p.name}
+                >
                   {p.name}
                 </td>
                 <td className="py-[7px] text-right text-[var(--qz-fg-2)] tabular-nums">
