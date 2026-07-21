@@ -432,9 +432,13 @@ export function TrafficMonitorPanel() {
           )}
 
           {/* Controls */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="relative">
-              <Search size={14} className="absolute left-[10px] top-1/2 -translate-y-1/2 text-[var(--qz-fg-4)]" />
+          <div className="flex items-start gap-3">
+            {/* Left-hand filters wrap among themselves (flex-1 min-w-0) so the
+                right-hand actions stay anchored on the first row instead of
+                dropping below when a long rule name widens this group. */}
+            <div className="flex items-center gap-3 flex-wrap flex-1 min-w-0">
+              <div className="relative">
+                <Search size={14} className="absolute left-[10px] top-1/2 -translate-y-1/2 text-[var(--qz-fg-4)]" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -500,8 +504,9 @@ export function TrafficMonitorPanel() {
                 </option>
               ))}
             </select>
+            </div>
 
-            <div className="ml-auto flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-shrink-0">
               <ColumnsMenu vis={vis} />
               <Button kind="secondary" size="sm" icon={RotateCw} onClick={refresh}>
                 Refresh

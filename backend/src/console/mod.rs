@@ -6,3 +6,4 @@ pub mod device_proxy;
 pub mod devices;
 pub mod enroll_tokens;
 pub mod organizations;
+pub mod updates;

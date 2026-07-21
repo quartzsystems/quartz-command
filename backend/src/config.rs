@@ -62,6 +62,15 @@ pub struct Config {
     /// SHA-256 goes into enrollment tokens. Defaults to the device CA cert
     /// (correct for self-hosted setups where the gateway cert is internal).
     pub gateway_ca_file: Option<PathBuf>,
+
+    /// GitHub `owner/repo` that publishes QuartzFire system-image releases
+    /// (`QC_QUARTZFIRE_REPO`, e.g. `zagdrath/quartzfire`). Unset disables the
+    /// firmware update check (the endpoint reports "not configured").
+    pub quartzfire_repo: Option<String>,
+
+    /// Optional GitHub token (`QC_GITHUB_TOKEN`) for the update check — raises
+    /// the API rate limit and is required if the releases repo is private.
+    pub github_token: Option<String>,
 }
 
 /// `host:port` a device could dial to reach a gateway bound at `listen`:
@@ -126,6 +135,9 @@ impl Config {
             .unwrap_or(false);
         let gateway_ca_file = non_empty("QC_GATEWAY_CA_FILE").map(PathBuf::from);
 
+        let quartzfire_repo = non_empty("QC_QUARTZFIRE_REPO");
+        let github_token = non_empty("QC_GITHUB_TOKEN");
+
         Ok(Self {
             database_url,
             listen,
@@ -142,6 +154,8 @@ impl Config {
             grpc_tls_key_file,
             gateway_tls_off,
             gateway_ca_file,
+            quartzfire_repo,
+            github_token,
         })
     }
 }

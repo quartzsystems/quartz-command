@@ -422,13 +422,38 @@ export function imageNameFromIsoName(fileName: string): string | null {
 /// is a long call — the device downloads and unpacks the image before
 /// answering — and the new image becomes the default boot entry; the running
 /// system is untouched until the next reboot.
-export async function addImage(url: string): Promise<void> {
+///
+/// `sha256` (bare hex, no "sha256:" prefix) is forwarded when known so the
+/// device can verify the download before staging it; QuartzFire builds that
+/// don't yet honor it ignore the extra field.
+export async function addImage(url: string, sha256?: string): Promise<void> {
+  const payload: Record<string, unknown> = { op: "add", url: url.trim() };
+  if (sha256) payload.sha256 = sha256;
   try {
-    await opApi("image", { op: "add", url: url.trim() }, "install the image");
+    await opApi("image", payload, "install the image");
   } catch (e) {
     if (e instanceof Error) throw new Error(translateImageAddError(e.message));
     throw e;
   }
+}
+
+/// Compare two QuartzFire version strings (the image name is the version, e.g.
+/// "0.4.6"; release tags may carry a leading "v"). Returns true when `latest`
+/// is strictly newer than `current`. Numeric dotted segments compare
+/// numerically; any pre-release suffix (after "-") is ignored, so a bare
+/// "0.4.7" always beats "0.4.6". Unparseable inputs → false (never nag).
+export function isNewerVersion(latest: string, current: string): boolean {
+  const parts = (v: string): number[] =>
+    v.trim().replace(/^v/i, "").split("-")[0].split(".").map((n) => parseInt(n, 10));
+  const a = parts(latest);
+  const b = parts(current);
+  if (a.some(Number.isNaN) || b.some(Number.isNaN) || a.length === 0) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return false;
 }
 
 /// Upload an ISO from the browser to the device's staging area. XHR rather

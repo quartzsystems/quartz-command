@@ -25,6 +25,7 @@ import {
   fetchImages,
   fetchShutdownSchedule,
   imageNameFromIsoName,
+  isNewerVersion,
   rebootSystem,
   restoreConfigBackup,
   scheduleReboot,
@@ -33,6 +34,7 @@ import {
   SystemImage,
   uploadImageFile,
 } from "@/lib/device/system";
+import { fetchLatestImage, type LatestImage } from "@/lib/api";
 import { useDashboard } from "@/lib/device/DashboardContext";
 import { useColumnResize } from "@/components/dashboard/ColumnResize";
 
@@ -727,6 +729,42 @@ export default function MaintenancePage() {
     load();
   }, [load]);
 
+  // Firmware update check (cloud-side GitHub lookup). The device downloads the
+  // ISO itself from the release URL, so nothing large transits the console.
+  const [latest, setLatest] = useState<LatestImage | null>(null);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  useEffect(() => {
+    fetchLatestImage()
+      .then(setLatest)
+      .catch(() => setLatest(null));
+  }, []);
+
+  const runningName = images?.find((i) => i.running)?.name ?? null;
+  // Prefer the amd64 asset (the common firewall arch); fall back to the only
+  // ISO when a release ships a single image.
+  const updateAsset = latest?.assets.find((a) => a.arch === "amd64") ?? latest?.assets[0] ?? null;
+  const updateReady =
+    !!latest?.available &&
+    !!updateAsset &&
+    !!runningName &&
+    !!latest.version &&
+    isNewerVersion(latest.version, runningName);
+
+  const installUpdate = async () => {
+    if (!updateAsset) return;
+    setInstallingUpdate(true);
+    try {
+      // GitHub reports the digest as "sha256:<hex>"; addImage wants bare hex.
+      await addImage(updateAsset.url, updateAsset.digest?.replace(/^sha256:/i, ""));
+      setToast("Update installed — it becomes the default boot image; reboot to run it.");
+      await load();
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Failed to install the update.");
+    } finally {
+      setInstallingUpdate(false);
+    }
+  };
+
   const removeImage = async (img: SystemImage) => {
     try {
       await deleteImage(img.name);
@@ -884,6 +922,52 @@ export default function MaintenancePage() {
               QuartzFire is image-based: upgrades install a whole new image next to the running one, and a
               reboot switches over. The previous image stays installed as a rollback boot entry.
             </p>
+
+            {/* GitHub-release update check: the firewall pulls the ISO itself. */}
+            {updateReady && updateAsset && (
+              <div
+                className="flex items-center gap-3 px-3 py-3 mb-4 rounded-md"
+                style={{ background: "var(--qz-accent-soft)", border: "1px solid color-mix(in oklab, var(--qz-accent) 30%, transparent)" }}
+              >
+                <HardDriveDownload size={16} className="flex-shrink-0" style={{ color: "var(--qz-accent)" }} />
+                <div className="min-w-0">
+                  <div className="text-[13px] text-[var(--qz-fg-1)] font-medium">
+                    Update available: <span className="mono">{runningName}</span> →{" "}
+                    <span className="mono">{latest?.version}</span>
+                    {latest?.prerelease && <span className="ml-2 badge badge-warn">pre-release</span>}
+                  </div>
+                  <div className="text-[12px] text-[var(--qz-fg-4)] mt-[2px]">
+                    <span className="mono">{updateAsset.name}</span>
+                    {updateAsset.size > 0 && ` · ${(updateAsset.size / (1024 * 1024)).toFixed(0)} MB`}
+                    {updateAsset.digest && " · checksum verified"}
+                    {latest?.notes_url && (
+                      <>
+                        {" · "}
+                        <a
+                          href={latest.notes_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline"
+                          style={{ color: "var(--qz-fg-3)" }}
+                        >
+                          Release notes
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="ml-auto flex-shrink-0">
+                  <Button kind="primary" size="sm" icon={HardDriveDownload} onClick={installUpdate} disabled={installingUpdate}>
+                    {installingUpdate ? "Installing…" : "Install update"}
+                  </Button>
+                </div>
+              </div>
+            )}
+            {latest?.available && runningName && latest.version && !updateReady && (
+              <div className="text-[12px] text-[var(--qz-fg-4)] mb-4">
+                Running the latest release (<span className="mono">{latest.version}</span>).
+              </div>
+            )}
 
             {loading ? (
               <div className="text-[13px] text-[var(--qz-fg-4)]">Loading images…</div>

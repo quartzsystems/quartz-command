@@ -17,6 +17,7 @@ import { useParams } from "next/navigation";
 import { ChevronDown, Columns3, Eraser, Pause, Play, RotateCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
+import { useColumnResize } from "@/components/dashboard/ColumnResize";
 import { MonitorPageShell } from "@/components/monitor/MonitorPage";
 import {
   AggregateColumn,
@@ -250,6 +251,14 @@ function LogTableView<T>({
   };
   const shownCols = useMemo(() => columns.filter((c) => !hidden.has(c.key)), [columns, hidden]);
 
+  // Draggable column widths (same model as the Traffic Monitor table): the `|`
+  // handle at each header boundary transfers width to its neighbour. Keyed off
+  // the visible columns so hiding one via the Columns menu re-flows cleanly.
+  const resize = useColumnResize(
+    storageKey ?? title,
+    useMemo(() => shownCols.map((c) => ({ key: c.key, width: c.width })), [shownCols]),
+  );
+
   const [colsOpen, setColsOpen] = useState(false);
   const [levelOpen, setLevelOpen] = useState(false);
   const colsRef = useDismiss(colsOpen, useCallback(() => setColsOpen(false), []));
@@ -273,7 +282,10 @@ function LogTableView<T>({
   return (
     <MonitorPageShell title={title} subtitle={subtitle}>
       <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-start gap-3">
+          {/* Left filters wrap among themselves so the right-hand actions stay
+              on the first row instead of dropping below on narrower widths. */}
+          <div className="flex items-center gap-3 flex-wrap flex-1 min-w-0">
           <div className="relative">
             <Search size={14} className="absolute left-[10px] top-1/2 -translate-y-1/2 text-[var(--qz-fg-4)]" />
             <input
@@ -288,8 +300,8 @@ function LogTableView<T>({
             <Segmented
               items={[
                 { value: "all", label: "All" },
-                { value: "blocked", label: "Blocked" },
                 { value: "allowed", label: "Allowed" },
+                { value: "blocked", label: "Blocked" },
               ]}
               value={verdict}
               onChange={(v) => setVerdict(v as typeof verdict)}
@@ -337,7 +349,9 @@ function LogTableView<T>({
               )}
             </div>
           )}
-          <div className="ml-auto flex items-center gap-3">
+          </div>
+
+          <div className="flex items-center gap-3 flex-shrink-0">
             {storageKey && (
               <div className="relative" ref={colsRef}>
                 <Button kind="secondary" size="sm" icon={Columns3} onClick={() => setColsOpen((o) => !o)}>
@@ -388,16 +402,18 @@ function LogTableView<T>({
         </div>
 
         <div className="rounded-md overflow-x-auto" style={{ border: "1px solid var(--qz-border)" }}>
-          <table className="qz-table" style={{ width: "100%" }}>
+          <table ref={resize.tableRef} className="qz-table" style={{ width: "100%", tableLayout: resize.tableLayout }}>
+            <colgroup>
+              {shownCols.map((c) => (
+                <col key={c.key} style={{ width: resize.colWidth(c.key) }} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
-                {shownCols.map((c) => (
-                  <th
-                    key={c.key}
-                    className={c.align === "right" ? "text-right" : undefined}
-                    style={c.width ? { width: c.width } : undefined}
-                  >
+                {shownCols.map((c, i) => (
+                  <th key={c.key} {...resize.thProps(i)} className={c.align === "right" ? "text-right" : undefined}>
                     {c.header}
+                    {resize.handle(i)}
                   </th>
                 ))}
               </tr>

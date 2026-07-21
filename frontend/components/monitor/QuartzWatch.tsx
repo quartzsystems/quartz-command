@@ -474,14 +474,18 @@ function QuartzWatchView({
                         {showText && (
                           <div className="flex flex-col h-full min-w-0">
                             <div
-                              className="text-[12px] font-semibold leading-tight truncate"
+                              // shrink-0: in a flex column an overflowing cell
+                              // otherwise squeezes this single line below its
+                              // own height, and `truncate`'s overflow:hidden
+                              // then clips the label vertically (text cutoff).
+                              className="text-[12px] font-semibold leading-tight truncate shrink-0"
                               style={{ color: "var(--qz-fg-1)", fontFamily: "var(--qz-font-mono)" }}
                               title={r.cell.label}
                             >
                               {r.cell.label}
                             </div>
                             {showMeta && (
-                              <div className="text-[11px] leading-snug mt-[2px]" style={{ color: "var(--qz-fg-3)" }}>
+                              <div className="text-[11px] leading-snug mt-[2px] shrink-0" style={{ color: "var(--qz-fg-3)" }}>
                                 {!isCountry && <div>{formatBytes(r.cell.bytes)}</div>}
                                 <div>Connections: {r.cell.conns.toLocaleString()}</div>
                               </div>

@@ -56,6 +56,9 @@ time = "0.3"
 rpassword = "7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Outbound HTTPS for the GitHub Releases update check. rustls (not native-tls)
+# to keep the build free of an OpenSSL system dependency, matching sqlx/tonic.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 [build-dependencies]
 # protox compiles .proto files in pure Rust, so builds don't need a protoc

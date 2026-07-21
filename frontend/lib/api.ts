@@ -114,6 +114,39 @@ export function removeSubOrgMember(
   });
 }
 
+// ── System images / firmware updates ────────────────────────────────────────
+
+/** One installable ISO asset from the latest release. */
+export interface UpdateAsset {
+  name: string;
+  /** arch parsed from `<version>-<arch>.iso` (amd64/arm64/…), or null. */
+  arch: string | null;
+  /** URL the device downloads from (`add system image <url>`). */
+  url: string;
+  size: number;
+  /** "sha256:…" when GitHub reports an asset digest; else null. */
+  digest: string | null;
+}
+
+/** Latest QuartzFire release + its ISO assets. `available` is false when no
+ *  releases repo is configured or the lookup failed (`error` explains why). */
+export interface LatestImage {
+  available: boolean;
+  version?: string;
+  name?: string;
+  published_at?: string;
+  notes_url?: string;
+  prerelease: boolean;
+  assets: UpdateAsset[];
+  error?: string;
+}
+
+/** Check the configured GitHub releases repo for the newest system image. This
+ *  is a cloud-side call (not device-proxied) — the backend queries GitHub. */
+export function fetchLatestImage(): Promise<LatestImage> {
+  return apiFetch<LatestImage>("/system/latest-image");
+}
+
 // ── Device enrollment ───────────────────────────────────────────────────────
 
 /** Enrollment-token metadata; the secret only ever appears in the create

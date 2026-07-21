@@ -136,6 +136,7 @@ async fn main() -> Result<()> {
             "/api/orgs/:organization_guid/enroll-tokens/:token_id/revoke",
             post(console::enroll_tokens::revoke),
         )
+        .route("/api/system/latest-image", get(console::updates::latest_image))
         .route("/api/orgs/:organization_guid/devices", get(console::devices::list))
         .route(
             "/api/orgs/:organization_guid/security-telemetry",
