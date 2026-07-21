@@ -113,6 +113,15 @@ export function CloudShell({
       : `${base}/orgs/${subGuid}`
     : base;
 
+  // Only Monitor and Configure are meaningful per-firewall; when a device is
+  // in scope the other tabs (Dashboard, Inventory, Administration) drop the
+  // device segment and return the user to the sub-org the firewall lives in.
+  const DEVICE_SCOPED_SECTIONS = new Set(["monitor", "configure"]);
+  const hrefFor = (item: HeaderItem) =>
+    deviceId && subGuid && !DEVICE_SCOPED_SECTIONS.has(item.id)
+      ? `${base}/orgs/${subGuid}${item.segment}`
+      : tabBase + item.segment;
+
   // The sidebar's per-sub-org firewall tree only makes sense in the
   // device-level sections (Monitor, Configure). On the Dashboard, Inventory,
   // and Administration sections it is hidden — those section keywords never
@@ -249,8 +258,8 @@ export function CloudShell({
 
   const headerActive = (item: HeaderItem) =>
     item.segment === ""
-      ? !HEADER_ITEMS.some((h) => h.segment !== "" && pathname.startsWith(tabBase + h.segment))
-      : pathname.startsWith(tabBase + item.segment);
+      ? !HEADER_ITEMS.some((h) => h.segment !== "" && pathname.startsWith(hrefFor(h)))
+      : pathname.startsWith(hrefFor(item));
 
   const sideItemClass = (active: boolean) =>
     [
@@ -331,7 +340,7 @@ export function CloudShell({
               return (
                 <Link
                   key={item.id}
-                  href={tabBase + item.segment}
+                  href={hrefFor(item)}
                   className={[
                     "flex items-center gap-[7px] px-[14px] text-[13px] font-medium no-underline transition-colors duration-[120ms]",
                     active

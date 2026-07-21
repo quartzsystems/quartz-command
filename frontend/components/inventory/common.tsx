@@ -6,6 +6,7 @@ import { AlertTriangle, Ban, Check, RotateCw, X, LucideIcon } from "lucide-react
 import { Button } from "@/components/ui/Button";
 import { Column } from "@/components/dashboard/DataTable";
 import { useCloudOrg } from "@/components/CloudShell";
+import { formatVersion } from "@/components/fleet/firmware";
 import {
   listDevices,
   listEnrollmentTokens,
@@ -220,7 +221,14 @@ export const deviceColumns: Column<Device>[] = [
     render: (r) => <span className="uppercase">{r.hostname}</span>,
     sortable: true,
   },
-  { key: "version", header: "Version", value: (r) => r.qf_version, mono: true, width: 300 },
+  {
+    key: "version",
+    header: "Version",
+    value: (r) => r.qf_version,
+    render: (r) => formatVersion(r.qf_version),
+    mono: true,
+    width: 150,
+  },
   {
     key: "last_seen",
     header: "Last seen",

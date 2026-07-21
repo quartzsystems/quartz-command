@@ -36,6 +36,16 @@ export function parseVersion(s: string | null | undefined): Version | null {
   return [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)];
 }
 
+/// A short, human-facing version label from a device's raw report string —
+/// "QuartzFire quartzfire-0.4.4 (qfagent…)" → "QuartzFire v0.4.4". Falls back
+/// to the trimmed raw string when there's no version-looking token, and to a
+/// dash when there's nothing at all.
+export function formatVersion(s: string | null | undefined): string {
+  const v = parseVersion(s);
+  if (!v) return s?.trim() || "—";
+  return `QuartzFire v${v[0]}.${v[1]}.${v[2]}`;
+}
+
 export function versionLt(a: Version, b: Version): boolean {
   for (let i = 0; i < 3; i++) {
     if (a[i] !== b[i]) return a[i] < b[i];

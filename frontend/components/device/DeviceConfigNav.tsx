@@ -9,6 +9,7 @@ import { Toast } from "@/components/dashboard/Toast";
 import { setDeviceScope } from "@/lib/device/api";
 import { DashboardProvider, useDashboard } from "@/lib/device/DashboardContext";
 import {
+  AppWindow,
   ArrowLeftRight,
   BookMarked,
   Boxes,
@@ -16,16 +17,32 @@ import {
   ChevronDown,
   ChevronRight,
   Combine,
+  Earth,
+  Filter,
+  Forward,
+  Globe,
+  KeyRound,
   ListOrdered,
+  Lock,
   LucideIcon,
+  Milestone,
   Network,
   Repeat,
+  Route,
+  Router,
+  Server,
+  Settings,
   Share2,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   Shuffle,
+  SlidersHorizontal,
   Spline,
   Tags,
+  Users,
   Waypoints,
+  Wrench,
 } from "lucide-react";
 
 interface NavChild {
@@ -46,9 +63,11 @@ interface NavGroup {
 }
 
 /// Mirrors the QuartzFire local web UI's sidebar for the sections managed
-/// from the cloud: Interfaces and NAT in full, Firewall minus Traffic Monitor
-/// (live traffic stays on the device's own UI). Keep in step with
-/// quartz-fire quartzfire-webui/frontend/components/dashboard/Sidebar.tsx.
+/// from the cloud. Configuration only: routing protocols, VPNs, and services
+/// keep their config panes but drop the live Status / Alerts tabs (those move
+/// to the cloud Monitor section), and System omits Management and Audit Log.
+/// Keep in step with quartz-fire
+/// quartzfire-webui/frontend/components/dashboard/Sidebar.tsx.
 const GROUPS: NavGroup[] = [
   {
     id: "interfaces",
@@ -83,6 +102,60 @@ const GROUPS: NavGroup[] = [
       { id: "zones",    label: "Zones",    segment: "/firewall/zones",    icon: Share2 },
       { id: "policies", label: "Policies", segment: "/firewall/policies", icon: Boxes },
       { id: "aliases",  label: "Aliases",  segment: "/firewall/aliases",  icon: BookMarked },
+    ],
+  },
+  {
+    id: "routing",
+    label: "Routing",
+    icon: Route,
+    segment: "/routing",
+    children: [
+      { id: "static", label: "Static", segment: "/routing/static", icon: Milestone },
+      { id: "ospf",   label: "OSPF",   segment: "/routing/ospf",   icon: Waypoints },
+      { id: "isis",   label: "IS-IS",  segment: "/routing/isis",   icon: Spline },
+      { id: "bgp",    label: "BGP",    segment: "/routing/bgp",    icon: Share2 },
+      { id: "mpls",   label: "MPLS",   segment: "/routing/mpls",   icon: Waypoints },
+      { id: "policy", label: "Policy", segment: "/routing/policy", icon: Filter },
+    ],
+  },
+  {
+    id: "vpn",
+    label: "VPN",
+    icon: ShieldCheck,
+    segment: "/vpn",
+    children: [
+      { id: "wireguard", label: "WireGuard", segment: "/vpn/wireguard", icon: Spline },
+      { id: "openvpn",   label: "OpenVPN",   segment: "/vpn/openvpn",   icon: Globe },
+      { id: "ipsec",     label: "IPsec",     segment: "/vpn/ipsec",     icon: Lock },
+      { id: "l2tp",      label: "L2TP",      segment: "/vpn/l2tp",      icon: Waypoints },
+    ],
+  },
+  {
+    id: "services",
+    label: "Services",
+    icon: Server,
+    segment: "/services",
+    children: [
+      { id: "dhcp-server",          label: "DHCP Server",          segment: "/services/dhcp-server",          icon: Router },
+      { id: "dhcp-relay",           label: "DHCP Relay",           segment: "/services/dhcp-relay",           icon: Forward },
+      { id: "dns-forwarding",       label: "DNS Forwarding",       segment: "/services/dns-forwarding",       icon: Globe },
+      { id: "intrusion-prevention", label: "Intrusion Prevention", segment: "/services/intrusion-prevention", icon: ShieldAlert },
+      { id: "application-control",  label: "Application Control",  segment: "/services/application-control",  icon: AppWindow },
+      { id: "geolocation",          label: "Geolocation",          segment: "/services/geolocation",          icon: Earth },
+      { id: "ssl-inspection",       label: "SSL Inspection",       segment: "/services/ssl-inspection",       icon: Lock },
+      { id: "content-filtering",    label: "Content Filtering",    segment: "/services/content-filtering",    icon: Filter },
+    ],
+  },
+  {
+    id: "system",
+    label: "System",
+    icon: Settings,
+    segment: "/system",
+    children: [
+      { id: "general",     label: "General",     segment: "/system/general",     icon: SlidersHorizontal },
+      { id: "users",       label: "Users",       segment: "/system/users",       icon: Users },
+      { id: "ssh",         label: "SSH",         segment: "/system/ssh",         icon: KeyRound },
+      { id: "maintenance", label: "Maintenance", segment: "/system/maintenance", icon: Wrench },
     ],
   },
 ];

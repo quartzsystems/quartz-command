@@ -161,6 +161,10 @@ async fn main() -> Result<()> {
             "/api/orgs/:organization_guid/devices/:device_id/proxy",
             post(console::device_proxy::forward),
         )
+        .route(
+            "/api/orgs/:organization_guid/subs/:sub_guid/monitor/proxy-fanout",
+            post(console::device_proxy::fanout),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             console::auth::require_auth,

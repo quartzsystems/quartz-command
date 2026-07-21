@@ -14,6 +14,7 @@ import {
 import { Sparkline } from "@/components/monitor/Sparkline";
 import * as api from "@/lib/api";
 import type { DeviceStatsResponse } from "@/lib/api";
+import { formatVersion } from "@/components/fleet/firmware";
 import { formatBytes, formatUptime } from "@/lib/device/format";
 import { useMonitorTelemetry } from "@/lib/monitor/telemetry";
 
@@ -133,7 +134,7 @@ export function DeviceMonitorSummary() {
           <h2 className="text-[14px] font-semibold text-[var(--qz-fg-1)] m-0">Device Information</h2>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-[10px] m-0">
             <InfoRow label="Name" value={device?.hostname ?? deviceId} />
-            <InfoRow label="Version" value={device?.qf_version ?? "—"} />
+            <InfoRow label="Version" value={formatVersion(device?.qf_version)} />
             <InfoRow label="Public IP" value={publicIp} mono />
             <InfoRow label="Uptime" value={formatUptime(latest?.uptime_secs)} />
           </dl>

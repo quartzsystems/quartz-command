@@ -12,7 +12,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use crate::{
     audit,
-    console::organizations::member_org,
+    console::organizations::{member_org, require_sub_org},
     error::{AppError, Result},
     gateway::control::ProxyError,
     security::Claims,
@@ -182,4 +182,124 @@ pub async fn forward(
         resp.content_type
     };
     Ok((status, [(header::CONTENT_TYPE, content_type)], resp.body).into_response())
+}
+
+/// One firewall's answer in a fan-out. `connected` is the live-stream state;
+/// when false the device was never contacted. `http_status`/`body` are present
+/// when the device replied; `error` carries a transport/offline failure so the
+/// console can show which firewalls dropped out of the aggregate.
+#[derive(Serialize)]
+struct FanoutItem {
+    device_id: String,
+    hostname: Option<String>,
+    connected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    http_status: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// POST /api/orgs/:organization_guid/subs/:sub_guid/monitor/proxy-fanout
+///
+/// Replays one read-only local-API call against every adopted firewall in the
+/// sub-organization and returns the per-device answers, so the Monitor section
+/// can build an aggregate summary from a single request instead of the browser
+/// fanning out. Reads only — the same GET/`show`/`retrieve` set the per-device
+/// proxy treats as read.
+pub async fn fanout(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((organization_guid, sub_guid)): Path<(Uuid, Uuid)>,
+    Json(body): Json<DeviceProxyBody>,
+) -> Result<Json<serde_json::Value>> {
+    let uid = caller_id(&claims)?;
+    member_org(&state, organization_guid, uid).await?;
+    require_sub_org(&state, organization_guid, sub_guid).await?;
+
+    let method = body.method.to_ascii_uppercase();
+    let path_only = body.path.split('?').next().unwrap_or("");
+    if !body.path.starts_with("/api/") || path_only.starts_with("/api/auth") {
+        return Err(AppError::BadRequest("path must be under /api/".into()));
+    }
+    if !is_read(&method, path_only) {
+        return Err(AppError::BadRequest("fan-out is read-only".into()));
+    }
+
+    // Adopted firewalls in this sub-org; revoked/pending devices have no control
+    // surface, so they never appear in the aggregate.
+    let devices: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT device_id, hostname FROM devices \
+         WHERE org_id = $1 AND sub_org_id = $2 AND state = 'adopted' \
+         ORDER BY hostname NULLS LAST, device_id",
+    )
+    .bind(organization_guid)
+    .bind(sub_guid)
+    .fetch_all(&state.db)
+    .await?;
+
+    let online = state.device_registry.online_ids();
+    let content_type = body.content_type.unwrap_or_default();
+    let req_body = body.body.unwrap_or_default();
+
+    let mut results: Vec<FanoutItem> = Vec::with_capacity(devices.len());
+    for (device_id, hostname) in devices {
+        if !online.contains(&device_id) {
+            results.push(FanoutItem {
+                device_id,
+                hostname,
+                connected: false,
+                http_status: None,
+                body: None,
+                error: Some("offline".into()),
+            });
+            continue;
+        }
+        let outcome = state
+            .device_registry
+            .proxy(
+                &device_id,
+                organization_guid,
+                &method,
+                &body.path,
+                &content_type,
+                req_body.clone().into_bytes(),
+                READ_TIMEOUT,
+            )
+            .await;
+        let item = match outcome {
+            Ok(resp) if resp.error.is_empty() => FanoutItem {
+                device_id,
+                hostname,
+                connected: true,
+                http_status: Some(resp.http_status as u16),
+                body: Some(String::from_utf8_lossy(&resp.body).into_owned()),
+                error: None,
+            },
+            Ok(resp) => FanoutItem {
+                device_id,
+                hostname,
+                connected: true,
+                http_status: None,
+                body: None,
+                error: Some(resp.error),
+            },
+            Err(e) => FanoutItem {
+                device_id,
+                hostname,
+                connected: true,
+                http_status: None,
+                body: None,
+                error: Some(match e {
+                    ProxyError::Offline => "offline".into(),
+                    ProxyError::Timeout => "timed out".into(),
+                    ProxyError::Disconnected => "disconnected".into(),
+                }),
+            },
+        };
+        results.push(item);
+    }
+
+    Ok(Json(json!({ "results": results })))
 }
