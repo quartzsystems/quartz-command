@@ -248,6 +248,70 @@ export function listSecurityTelemetry(guid: string): Promise<DeviceSecurityTelem
   return apiFetch<DeviceSecurityTelemetry[]>(`/orgs/${guid}/security-telemetry`);
 }
 
+/** One firewall policy/rule's cumulative traffic counters (Most Active
+ *  Policies on the device Monitor overview). */
+export interface PolicyStat {
+  name: string;
+  bytes: number;
+  hits: number;
+}
+
+/** The latest device health & stats snapshot a firewall pushed over its control
+ *  stream. Utilization gauges are instantaneous 0–100 percentages; the
+ *  top-policy counters are cumulative. */
+export interface DeviceStats {
+  device_id: string;
+  /** Device wall-clock of the snapshot (epoch seconds). */
+  time_unix: number;
+  cpu_pct: number;
+  mem_pct: number;
+  disk_pct: number;
+  uptime_secs: number;
+  /** Public/WAN IP as the device sees itself ("" when undetermined). */
+  public_ip: string;
+  /** Top firewall policies by traffic (already sorted desc, capped). */
+  top_policies: PolicyStat[];
+  received_at: string;
+}
+
+/** One point in a device's rolling utilization history, driving the sparklines. */
+export interface DeviceStatsSample {
+  cpu_pct: number;
+  mem_pct: number;
+  disk_pct: number;
+  received_at: string;
+}
+
+/** The device Monitor overview payload: latest snapshot (null until the device
+ *  first reports) plus its recent utilization samples, oldest first. */
+export interface DeviceStatsResponse {
+  latest: DeviceStats | null;
+  samples: DeviceStatsSample[];
+}
+
+/** Health & stats for a single device (device Monitor overview). */
+export function getDeviceStats(guid: string, deviceId: string): Promise<DeviceStatsResponse> {
+  return apiFetch<DeviceStatsResponse>(`/orgs/${guid}/devices/${deviceId}/stats`);
+}
+
+/** Reboot a firewall (owner/admin). Travels through the device proxy to the
+ *  device's local management API, which performs the reboot. Resolves once the
+ *  device acknowledges the command; the control stream then drops as it
+ *  restarts. */
+export async function rebootDevice(guid: string, deviceId: string): Promise<void> {
+  const res = await apiFetch<{ success?: boolean; error?: string } | null>(
+    `/orgs/${guid}/devices/${deviceId}/proxy`,
+    {
+      method: "POST",
+      body: JSON.stringify({ method: "POST", path: "/api/system/reboot" }),
+    },
+  );
+  // The device wraps failures in a { success:false, error } body even on 200.
+  if (res && res.success === false) {
+    throw new ApiError(res.error ?? "Reboot failed.", 502);
+  }
+}
+
 /** Allocate a device to a sub-organization, move it between sub-organizations,
  *  or deallocate it (null) back to the top-level pool. Owner/admin only. */
 export function allocateDevice(

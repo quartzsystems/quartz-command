@@ -42,6 +42,20 @@ export function formatTimestamp(unixSecs: number | null | undefined): string {
   return new Date(unixSecs * 1000).toLocaleString();
 }
 
+/// Uptime from a seconds count → compact "4d 23h 52m" (drops leading zero
+/// units, always shows minutes so a fresh boot doesn't read as blank).
+export function formatUptime(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "—";
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const parts: string[] = [];
+  if (d) parts.push(`${d}d`);
+  if (h || d) parts.push(`${h}h`);
+  parts.push(`${m}m`);
+  return parts.join(" ");
+}
+
 /// Network rate from bytes/sec, shown in bits/sec (the conventional "speed" unit).
 export function formatRate(bytesPerSec: number | null | undefined): string {
   if (bytesPerSec == null || !Number.isFinite(bytesPerSec)) return "—";

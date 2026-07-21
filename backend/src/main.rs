@@ -142,6 +142,10 @@ async fn main() -> Result<()> {
             get(console::devices::security_telemetry),
         )
         .route(
+            "/api/orgs/:organization_guid/devices/:device_id/stats",
+            get(console::devices::device_stats),
+        )
+        .route(
             "/api/orgs/:organization_guid/devices/:device_id/revoke",
             post(console::devices::revoke),
         )

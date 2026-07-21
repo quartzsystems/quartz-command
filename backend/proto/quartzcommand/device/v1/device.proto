@@ -41,6 +41,10 @@ message DeviceMessage {
     // unsolicited on a fixed interval (~60 s) after the DeviceHello. field 3
     // is reserved for this message fleet-wide.
     SecurityTelemetry security_telemetry = 3;
+    // Periodic device health & stats (see DeviceStats). Sent unsolicited on a
+    // fixed interval (~30 s) after the DeviceHello. field 4 is reserved for
+    // this message fleet-wide.
+    DeviceStats device_stats = 4;
   }
 }
 
@@ -140,4 +144,44 @@ message ContentFilterCounters {
   uint64 blocked = 2;        // requests denied
   uint64 allowed = 3;        // requests allowed
   uint64 total_requests = 4; // blocked + allowed
+}
+
+// ── Device health & stats ────────────────────────────────────────────────────
+//
+// A snapshot of the device's health and traffic, pushed on a fixed interval
+// (~30 s). Utilization gauges are instantaneous point-in-time readings the
+// agent has already averaged over its sample window; the controller retains a
+// short rolling history of them to drive the console's sparklines. The
+// top_policies counters are cumulative like the security ones. Fields the
+// agent can't determine are sent as their zero value ("" for public_ip).
+message DeviceStats {
+  // Device wall-clock when this snapshot was taken, UTC seconds since epoch.
+  int64 time_unix = 1;
+  // Nominal seconds between reports (the cadence, e.g. 30). Informational.
+  uint32 interval_secs = 2;
+
+  // Resource utilization as a 0–100 percentage, already averaged by the agent
+  // over its sample window.
+  double cpu_pct = 3;
+  double mem_pct = 4;
+  double disk_pct = 5;
+
+  // Seconds since the device booted.
+  int64 uptime_secs = 6;
+  // The device's public/WAN IP as it sees itself ("" when undetermined). This
+  // is the address the firewall reports, which may differ from the source IP
+  // the controller observes on the connection (NAT/proxied paths).
+  string public_ip = 7;
+
+  // The most active firewall policies (rules) by traffic, already sorted
+  // descending by the agent and capped to a small set (~8). Cumulative
+  // counters (Prometheus-counter semantics), reset when the ruleset reloads.
+  repeated PolicyStat top_policies = 8;
+}
+
+// One firewall policy/rule's cumulative traffic counters.
+message PolicyStat {
+  string name = 1;   // human-readable rule/policy name
+  uint64 bytes = 2;  // bytes matched by the rule
+  uint64 hits = 3;   // packets/hits matched by the rule
 }

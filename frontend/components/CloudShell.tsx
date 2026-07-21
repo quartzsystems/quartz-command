@@ -441,7 +441,10 @@ export function CloudShell({
                 return (
                   <Link
                     key={d.device_id}
-                    href={deviceHref}
+                    // Land the device in the section you're already viewing
+                    // (Monitor/Configure) rather than its bare root, which is
+                    // the placeholder Dashboard — mirrors the org/sub-org rows.
+                    href={`${deviceHref}${sectionSuffix}`}
                     title={d.hostname ?? d.device_id}
                     className={[
                       `flex items-center gap-[8px] ${padClass} pr-[10px] py-[6px] rounded-md text-[12.5px] font-medium border transition-all duration-[120ms] no-underline w-full text-left cursor-pointer`,

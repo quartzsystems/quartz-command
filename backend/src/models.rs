@@ -1,7 +1,8 @@
 //! Database row types shared across handlers.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sqlx::types::Json;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -171,6 +172,53 @@ pub struct DeviceSecurityTelemetry {
     pub cf_total_requests: i64,
 
     pub received_at: DateTime<Utc>,
+}
+
+/// One firewall policy/rule's cumulative traffic counters, as pushed in the
+/// device-stats snapshot and stored in `device_stats.top_policies` (JSON).
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct PolicyStat {
+    pub name: String,
+    pub bytes: i64,
+    pub hits: i64,
+}
+
+/// The latest device health & stats snapshot a device pushed over its control
+/// stream (one row per device). Utilization gauges are instantaneous; the
+/// top-policy counters are cumulative. Serialized to the device Monitor
+/// overview alongside a short window of `DeviceStatsSample`s.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct DeviceStats {
+    pub device_id: String,
+    /// Device wall-clock of the snapshot (epoch seconds).
+    pub time_unix: i64,
+    pub cpu_pct: f64,
+    pub mem_pct: f64,
+    pub disk_pct: f64,
+    pub uptime_secs: i64,
+    /// Public/WAN IP as the device sees itself ("" when undetermined).
+    pub public_ip: String,
+    /// Top firewall policies by traffic (already sorted desc, capped).
+    pub top_policies: Json<Vec<PolicyStat>>,
+    pub received_at: DateTime<Utc>,
+}
+
+/// One point in a device's rolling utilization history, driving the console's
+/// CPU/memory/disk sparklines. Ordered by `received_at`.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct DeviceStatsSample {
+    pub cpu_pct: f64,
+    pub mem_pct: f64,
+    pub disk_pct: f64,
+    pub received_at: DateTime<Utc>,
+}
+
+/// The device Monitor overview payload: the latest snapshot (absent until the
+/// device first reports) plus its recent utilization samples, oldest first.
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceStatsResponse {
+    pub latest: Option<DeviceStats>,
+    pub samples: Vec<DeviceStatsSample>,
 }
 
 /// A sub-organization nested under a parent organization (cloud console's

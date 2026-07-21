@@ -14,7 +14,7 @@ use crate::audit;
 use crate::gateway::clone_detect::CloneSignal;
 use crate::gateway::pb::device::v1::{
     device_message, device_service_server::DeviceService, ControllerMessage, DeviceMessage,
-    RenewCertificateRequest, RenewCertificateResponse, SecurityTelemetry,
+    DeviceStats, RenewCertificateRequest, RenewCertificateResponse, SecurityTelemetry,
 };
 use crate::gateway::GrpcState;
 use crate::pki::ca::{self, DeviceIdentity, DEVICE_CERT_DAYS};
@@ -198,6 +198,82 @@ async fn store_security_telemetry(state: &GrpcState, device_id: &str, t: &Securi
     }
 }
 
+/// How long the rolling utilization history is retained for the sparklines.
+/// At the ~30 s device-stats cadence this is a few hundred samples per device.
+const STATS_SAMPLE_RETENTION: &str = "2 hours";
+
+/// Store a device health & stats snapshot: upsert the latest row (one per
+/// device) and append a utilization sample to the rolling history, pruning the
+/// history to `STATS_SAMPLE_RETENTION`. Counters are u64 on the wire but always
+/// well within i64 in practice; saturate on the way into Postgres.
+async fn store_device_stats(state: &GrpcState, device_id: &str, s: &DeviceStats) {
+    let i64c = |v: u64| i64::try_from(v).unwrap_or(i64::MAX);
+    // The agent already averages the gauges, but clamp defensively so one bad
+    // sample can't poison the sparkline's 0–100 scale.
+    let clamp = |v: f64| if v.is_finite() { v.clamp(0.0, 100.0) } else { 0.0 };
+    let (cpu, mem, disk) = (clamp(s.cpu_pct), clamp(s.mem_pct), clamp(s.disk_pct));
+
+    // Cap the stored policy list defensively; the agent should already bound it.
+    let policies: Vec<serde_json::Value> = s
+        .top_policies
+        .iter()
+        .take(16)
+        .map(|p| json!({ "name": p.name, "bytes": i64c(p.bytes), "hits": i64c(p.hits) }))
+        .collect();
+    let policies = serde_json::Value::Array(policies);
+
+    let res = sqlx::query(
+        "INSERT INTO device_stats ( \
+            device_id, time_unix, interval_secs, cpu_pct, mem_pct, disk_pct, \
+            uptime_secs, public_ip, top_policies, received_at) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now()) \
+         ON CONFLICT (device_id) DO UPDATE SET \
+            time_unix = EXCLUDED.time_unix, interval_secs = EXCLUDED.interval_secs, \
+            cpu_pct = EXCLUDED.cpu_pct, mem_pct = EXCLUDED.mem_pct, \
+            disk_pct = EXCLUDED.disk_pct, uptime_secs = EXCLUDED.uptime_secs, \
+            public_ip = EXCLUDED.public_ip, top_policies = EXCLUDED.top_policies, \
+            received_at = now()",
+    )
+    .bind(device_id)
+    .bind(s.time_unix)
+    .bind(s.interval_secs as i32)
+    .bind(cpu)
+    .bind(mem)
+    .bind(disk)
+    .bind(s.uptime_secs)
+    .bind(&s.public_ip)
+    .bind(policies)
+    .execute(&state.db)
+    .await;
+    if let Err(e) = res {
+        tracing::debug!(device = %device_id, "storing device stats: {e}");
+        return;
+    }
+
+    // Append the utilization sample, then prune the history window.
+    let sample = sqlx::query(
+        "INSERT INTO device_stats_samples (device_id, cpu_pct, mem_pct, disk_pct) \
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(device_id)
+    .bind(cpu)
+    .bind(mem)
+    .bind(disk)
+    .execute(&state.db)
+    .await;
+    if let Err(e) = sample {
+        tracing::debug!(device = %device_id, "appending device-stats sample: {e}");
+        return;
+    }
+    let _ = sqlx::query(&format!(
+        "DELETE FROM device_stats_samples \
+         WHERE device_id = $1 AND received_at < now() - interval '{STATS_SAMPLE_RETENTION}'"
+    ))
+    .bind(device_id)
+    .execute(&state.db)
+    .await;
+}
+
 /// Extract and validate the mTLS device identity from a request.
 fn authenticated_identity<T>(request: &Request<T>) -> Result<DeviceIdentity, Status> {
     // peer_certs() is populated by tonic's TLS layer once the client cert
@@ -318,6 +394,9 @@ impl DeviceService for DeviceGrpc {
                         }
                         Ok(Some(DeviceMessage { msg: Some(device_message::Msg::SecurityTelemetry(t)) })) => {
                             store_security_telemetry(&state, &device_id, &t).await;
+                        }
+                        Ok(Some(DeviceMessage { msg: Some(device_message::Msg::DeviceStats(s)) })) => {
+                            store_device_stats(&state, &device_id, &s).await;
                         }
                         Ok(Some(DeviceMessage { msg: None })) => {}
                         Ok(None) => break,          // device closed the stream

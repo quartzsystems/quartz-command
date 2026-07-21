@@ -11,7 +11,7 @@ use crate::{
     audit,
     console::organizations::{member_org, require_folder, require_sub_org},
     error::{AppError, Result},
-    models::{Device, DeviceSecurityTelemetry},
+    models::{Device, DeviceSecurityTelemetry, DeviceStats, DeviceStatsResponse, DeviceStatsSample},
     security::Claims,
     AppState,
 };
@@ -81,6 +81,55 @@ pub async fn security_telemetry(
     .await?;
 
     Ok(Json(rows))
+}
+
+/// GET /api/orgs/:organization_guid/devices/:device_id/stats — any member. The
+/// device Monitor overview payload: the latest health & stats snapshot plus a
+/// short window of utilization samples (oldest first) for the sparklines. The
+/// device must belong to this org; an unreported device yields a null latest
+/// and an empty sample list.
+pub async fn device_stats(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((organization_guid, device_id)): Path<(Uuid, String)>,
+) -> Result<Json<DeviceStatsResponse>> {
+    let uid = caller_id(&claims)?;
+    member_org(&state, organization_guid, uid).await?;
+
+    // Scope to a device that belongs to this org (a bare id from another org
+    // must not read across the tenant boundary).
+    let exists: Option<(String,)> =
+        sqlx::query_as("SELECT device_id FROM devices WHERE device_id = $1 AND org_id = $2")
+            .bind(&device_id)
+            .bind(organization_guid)
+            .fetch_optional(&state.db)
+            .await?;
+    if exists.is_none() {
+        return Err(AppError::NotFound("no such device".into()));
+    }
+
+    let latest = sqlx::query_as::<_, DeviceStats>(
+        "SELECT device_id, time_unix, cpu_pct, mem_pct, disk_pct, uptime_secs, \
+                public_ip, top_policies, received_at \
+         FROM device_stats WHERE device_id = $1",
+    )
+    .bind(&device_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    // Newest-first from the DB (bounded by the index), reversed to oldest-first
+    // so the console can plot left-to-right without re-sorting.
+    let mut samples = sqlx::query_as::<_, DeviceStatsSample>(
+        "SELECT cpu_pct, mem_pct, disk_pct, received_at \
+         FROM device_stats_samples WHERE device_id = $1 \
+         ORDER BY received_at DESC LIMIT 240",
+    )
+    .bind(&device_id)
+    .fetch_all(&state.db)
+    .await?;
+    samples.reverse();
+
+    Ok(Json(DeviceStatsResponse { latest, samples }))
 }
 
 /// POST /api/orgs/:organization_guid/devices/:device_id/revoke — owner/admin.

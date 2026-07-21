@@ -1,7 +1,7 @@
 "use client";
 
-import { MonitorSummary } from "@/components/monitor/MonitorSummary";
+import { DeviceMonitorSummary } from "@/components/monitor/DeviceMonitorSummary";
 
 export default function DeviceMonitorPage() {
-  return <MonitorSummary />;
+  return <DeviceMonitorSummary />;
 }
