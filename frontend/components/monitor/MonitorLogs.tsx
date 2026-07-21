@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { Pause, Play, RotateCw, Search } from "lucide-react";
+import { ChevronDown, Columns3, Eraser, Pause, Play, RotateCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
 import { MonitorPageShell } from "@/components/monitor/MonitorPage";
@@ -25,7 +25,7 @@ import {
   useDeviceMonitorHref,
 } from "@/components/monitor/AggregateTable";
 import { fanoutApi } from "@/lib/device/fanout";
-import { fetchIpsAlertHistory, alertKey, type IpsAlert } from "@/lib/device/ips";
+import { fetchIpsAlertHistory, alertKey, THREAT_LEVELS, type IpsAlert, type ThreatLevel } from "@/lib/device/ips";
 import { fetchAcAlertHistory, eventKey as acKey, type AcEvent } from "@/lib/device/appcontrol";
 import { fetchGeoAlertHistory, geoEventKey, type GeoEvent } from "@/lib/device/geolocation";
 import { fetchCfLogs, type CfLogEntry } from "@/lib/device/content-filtering";
@@ -35,13 +35,58 @@ const MAX_ROWS = 500;
 
 type Verdict = "allowed" | "blocked" | "other";
 
+/// Action pill matching the firewall's local WebUI: an outlined, tinted chip
+/// (green Allowed / red Blocked / neutral Scanned) rather than the filled badge.
 function verdictBadge(v: Verdict) {
-  if (v === "blocked") return <span className="badge badge-crit">Blocked</span>;
-  if (v === "allowed") return <span className="badge badge-ok">Allowed</span>;
-  return <span className="badge badge-muted">Scanned</span>;
+  const meta =
+    v === "blocked"
+      ? { label: "Blocked", color: "var(--qz-danger)" }
+      : v === "allowed"
+        ? { label: "Allowed", color: "var(--qz-success)" }
+        : { label: "Scanned", color: "var(--qz-fg-4)" };
+  return (
+    <span
+      className="inline-flex items-center text-[11px] font-semibold rounded-md px-[8px] py-[2px] leading-none"
+      style={{
+        color: meta.color,
+        border: `1px solid color-mix(in oklab, ${meta.color} 40%, transparent)`,
+        background: `color-mix(in oklab, ${meta.color} 12%, transparent)`,
+      }}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+/// Severity dot + label, colored from the IPS threat-level scale (Medium =
+/// amber, etc.) — mirrors the local WebUI's Level column.
+function levelDot(level: ThreatLevel) {
+  const meta = THREAT_LEVELS.find((t) => t.level === level);
+  return (
+    <span className="inline-flex items-center gap-[7px]">
+      <span
+        className="inline-block w-[7px] h-[7px] rounded-full flex-shrink-0"
+        style={{ background: meta?.color ?? "var(--qz-fg-4)" }}
+      />
+      <span className="text-[var(--qz-fg-2)]">{meta?.label ?? level}</span>
+    </span>
+  );
+}
+
+/// IP:port with the port dimmed, matching the local WebUI's endpoint styling.
+function endpointCell(ip?: string, port?: number) {
+  if (!ip) return <span className="mono text-[12px] text-[var(--qz-fg-4)]">—</span>;
+  return (
+    <span className="mono text-[12px]">
+      <span style={{ color: "var(--qz-fg-1)" }}>{ip}</span>
+      {port ? <span style={{ color: "var(--qz-fg-4)" }}>:{port}</span> : null}
+    </span>
+  );
 }
 
 const fmtTime = (ms: number) => (Number.isFinite(ms) ? new Date(ms).toLocaleString() : "—");
+/** Time-of-day only (HH:MM:SS) — the local WebUI log tables show just the clock. */
+const fmtClock = (ms: number) => (Number.isFinite(ms) ? new Date(ms).toLocaleTimeString() : "—");
 const endpoint = (ip?: string, port?: number) => (ip ? (port ? `${ip}:${port}` : ip) : "—");
 
 // ── polled log hook (device scope) ───────────────────────────────────────────
@@ -89,6 +134,32 @@ interface LogColumn<T> {
   width?: number;
 }
 
+/** One option in the optional level dropdown (IPS threat levels). */
+interface LevelOption {
+  value: string;
+  label: string;
+  color?: string;
+}
+
+/// Close a popover (Columns / level menu) on an outside click or Escape.
+function useDismiss(open: boolean, close: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, close]);
+  return ref;
+}
+
 function LogTableView<T>({
   title,
   subtitle,
@@ -98,13 +169,18 @@ function LogTableView<T>({
   verdictOf,
   verdictFilter = true,
   searchOf,
-  updated,
   error,
   loading,
   paused,
   onPause,
   onRefresh,
   emptyMessage,
+  searchPlaceholder = "Filter events…",
+  noun = "events",
+  levelOptions,
+  levelOf,
+  timeOf,
+  storageKey,
 }: {
   title: string;
   subtitle: string;
@@ -115,28 +191,84 @@ function LogTableView<T>({
   /** Show the all/allowed/blocked toggle (off for block-only logs like Geo). */
   verdictFilter?: boolean;
   searchOf: (row: T) => string;
-  updated: Date | null;
   error: string | null;
   loading: boolean;
   paused: boolean;
   onPause: () => void;
   onRefresh: () => void;
   emptyMessage: string;
+  /** Placeholder for the free-text filter (matches the local WebUI wording). */
+  searchPlaceholder?: string;
+  /** Plural noun for the live status ("alerts", "events", "requests"). */
+  noun?: string;
+  /** Enables the "All levels" dropdown when present (IPS). */
+  levelOptions?: LevelOption[];
+  levelOf?: (row: T) => string;
+  /** Enables the "Clear" watermark: hides rows at/older than the clear time. */
+  timeOf?: (row: T) => number;
+  /** Per-table localStorage key for remembering hidden columns. */
+  storageKey?: string;
 }) {
   const [query, setQuery] = useState("");
   const [verdict, setVerdict] = useState<"all" | "allowed" | "blocked">("all");
+  const [level, setLevel] = useState("all");
   const showVerdict = verdictFilter && !!verdictOf;
+
+  // "Clear" doesn't wipe device history (it's persisted); it sets a watermark
+  // so everything currently shown drops away and only newer events stream in —
+  // the local WebUI's clear-the-noise behavior, adapted to the polled model.
+  const [clearedAt, setClearedAt] = useState(0);
+
+  // Column visibility (the "Columns" picker), remembered per table.
+  const colsKey = storageKey ? `qz-logcols:${storageKey}` : null;
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!colsKey) return;
+    try {
+      const raw = window.localStorage.getItem(colsKey);
+      if (raw) setHidden(new Set(JSON.parse(raw) as string[]));
+    } catch {
+      /* ignore */
+    }
+  }, [colsKey]);
+  const persistHidden = (next: Set<string>) => {
+    setHidden(next);
+    if (colsKey) {
+      try {
+        window.localStorage.setItem(colsKey, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+  const toggleCol = (key: string) => {
+    const next = new Set(hidden);
+    if (next.has(key)) next.delete(key);
+    // Never hide the last remaining column.
+    else if (columns.length - next.size > 1) next.add(key);
+    persistHidden(next);
+  };
+  const shownCols = useMemo(() => columns.filter((c) => !hidden.has(c.key)), [columns, hidden]);
+
+  const [colsOpen, setColsOpen] = useState(false);
+  const [levelOpen, setLevelOpen] = useState(false);
+  const colsRef = useDismiss(colsOpen, useCallback(() => setColsOpen(false), []));
+  const levelRef = useDismiss(levelOpen, useCallback(() => setLevelOpen(false), []));
 
   const q = query.trim().toLowerCase();
   const visible = useMemo(
     () =>
       rows.filter((r) => {
         if (showVerdict && verdict !== "all" && verdictOf!(r) !== verdict) return false;
+        if (levelOptions && level !== "all" && levelOf?.(r) !== level) return false;
+        if (timeOf && clearedAt && timeOf(r) <= clearedAt) return false;
         if (q && !searchOf(r).toLowerCase().includes(q)) return false;
         return true;
       }),
-    [rows, showVerdict, verdict, q, verdictOf, searchOf],
+    [rows, showVerdict, verdict, q, verdictOf, searchOf, levelOptions, level, levelOf, timeOf, clearedAt],
   );
+
+  const activeLevel = levelOptions?.find((o) => o.value === level);
 
   return (
     <MonitorPageShell title={title} subtitle={subtitle}>
@@ -147,7 +279,7 @@ function LogTableView<T>({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter events…"
+              placeholder={searchPlaceholder}
               className="rounded-md pl-8 pr-3 py-[7px] text-[13px] text-[var(--qz-fg-1)] outline-none w-[240px]"
               style={{ background: "var(--qz-input-bg)", border: "1px solid var(--qz-border)" }}
             />
@@ -156,26 +288,101 @@ function LogTableView<T>({
             <Segmented
               items={[
                 { value: "all", label: "All" },
-                { value: "allowed", label: "Allowed" },
                 { value: "blocked", label: "Blocked" },
+                { value: "allowed", label: "Allowed" },
               ]}
               value={verdict}
               onChange={(v) => setVerdict(v as typeof verdict)}
             />
           )}
+          {levelOptions && (
+            <div className="relative" ref={levelRef}>
+              <button
+                type="button"
+                onClick={() => setLevelOpen((o) => !o)}
+                className="inline-flex items-center gap-[8px] rounded-md pl-[10px] pr-[8px] py-[7px] text-[13px] cursor-pointer"
+                style={{ background: "var(--qz-input-bg)", border: "1px solid var(--qz-border)", color: "var(--qz-fg-1)" }}
+              >
+                {activeLevel?.color && (
+                  <span className="inline-block w-[7px] h-[7px] rounded-full" style={{ background: activeLevel.color }} />
+                )}
+                <span>{activeLevel?.label ?? "All levels"}</span>
+                <ChevronDown size={13} className="text-[var(--qz-fg-4)]" />
+              </button>
+              {levelOpen && (
+                <div
+                  className="absolute left-0 mt-1 z-20 rounded-md py-1 min-w-[170px]"
+                  style={{ background: "var(--qz-surface)", border: "1px solid var(--qz-border)", boxShadow: "0 8px 24px rgba(0,0,0,0.35)" }}
+                >
+                  {[{ value: "all", label: "All levels" } as LevelOption, ...levelOptions].map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => {
+                        setLevel(o.value);
+                        setLevelOpen(false);
+                      }}
+                      className="flex items-center gap-[8px] w-full px-3 py-[6px] text-[13px] text-left bg-transparent border-0 cursor-pointer hover:bg-[color-mix(in_oklab,white_5%,transparent)]"
+                      style={{ color: level === o.value ? "var(--qz-accent)" : "var(--qz-fg-2)" }}
+                    >
+                      {o.color ? (
+                        <span className="inline-block w-[7px] h-[7px] rounded-full flex-shrink-0" style={{ background: o.color }} />
+                      ) : (
+                        <span className="inline-block w-[7px] flex-shrink-0" />
+                      )}
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="ml-auto flex items-center gap-3">
+            {storageKey && (
+              <div className="relative" ref={colsRef}>
+                <Button kind="secondary" size="sm" icon={Columns3} onClick={() => setColsOpen((o) => !o)}>
+                  Columns
+                </Button>
+                {colsOpen && (
+                  <div
+                    className="absolute right-0 mt-1 z-20 rounded-md py-1 min-w-[190px]"
+                    style={{ background: "var(--qz-surface)", border: "1px solid var(--qz-border)", boxShadow: "0 8px 24px rgba(0,0,0,0.35)" }}
+                  >
+                    <div className="px-3 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--qz-fg-4)]">
+                      Columns
+                    </div>
+                    {columns.map((c) => (
+                      <label
+                        key={c.key}
+                        className="flex items-center gap-[8px] px-3 py-[6px] text-[13px] cursor-pointer text-[var(--qz-fg-2)] hover:bg-[color-mix(in_oklab,white_5%,transparent)]"
+                      >
+                        <input type="checkbox" className="qz-check" checked={!hidden.has(c.key)} onChange={() => toggleCol(c.key)} />
+                        {c.header}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <Button kind="secondary" size="sm" icon={RotateCw} onClick={onRefresh}>
               Refresh
             </Button>
             <Button kind="secondary" size="sm" icon={paused ? Play : Pause} onClick={onPause}>
               {paused ? "Resume" : "Pause"}
             </Button>
-            <span className="text-[12px] text-[var(--qz-fg-4)]">
-              {error
-                ? "Unavailable"
-                : loading
-                  ? "Loading…"
-                  : `${visible.length} ${visible.length === 1 ? "event" : "events"}${updated ? ` · ${updated.toLocaleTimeString()}` : ""}`}
+            {timeOf && (
+              <Button kind="secondary" size="sm" icon={Eraser} onClick={() => setClearedAt(Date.now())}>
+                Clear
+              </Button>
+            )}
+            <span className="inline-flex items-center gap-[6px] text-[12px] text-[var(--qz-fg-4)]">
+              {!error && !loading && (
+                <span
+                  className="inline-block w-[7px] h-[7px] rounded-full"
+                  style={{ background: paused ? "var(--qz-fg-4)" : "var(--qz-success)" }}
+                />
+              )}
+              {error ? "Unavailable" : loading ? "Loading…" : `${paused ? "Paused" : "Live"} · ${visible.length} ${noun}`}
             </span>
           </div>
         </div>
@@ -184,7 +391,7 @@ function LogTableView<T>({
           <table className="qz-table" style={{ width: "100%" }}>
             <thead>
               <tr>
-                {columns.map((c) => (
+                {shownCols.map((c) => (
                   <th
                     key={c.key}
                     className={c.align === "right" ? "text-right" : undefined}
@@ -198,14 +405,14 @@ function LogTableView<T>({
             <tbody>
               {visible.length === 0 ? (
                 <tr>
-                  <td colSpan={columns.length} className="text-center text-[var(--qz-fg-4)]" style={{ cursor: "default" }}>
+                  <td colSpan={shownCols.length} className="text-center text-[var(--qz-fg-4)]" style={{ cursor: "default" }}>
                     {error ? error : loading ? "Loading…" : emptyMessage}
                   </td>
                 </tr>
               ) : (
                 visible.map((r) => (
                   <tr key={rowKey(r)} style={{ cursor: "default" }}>
-                    {columns.map((c) => (
+                    {shownCols.map((c) => (
                       <td key={c.key} className={c.align === "right" ? "text-right" : undefined}>
                         {c.render(r)}
                       </td>
@@ -226,12 +433,22 @@ function LogTableView<T>({
 const ipsVerdict = (a: IpsAlert): Verdict => (a.action === "blocked" ? "blocked" : "allowed");
 
 const IPS_COLS: LogColumn<IpsAlert>[] = [
-  { key: "time", header: "Time", render: (r) => fmtTime(r.ts), width: 180 },
-  { key: "level", header: "Level", render: (r) => <span className="uppercase text-[var(--qz-fg-2)]">{r.level}</span>, width: 90 },
-  { key: "sig", header: "Signature", render: (r) => <span className="text-[var(--qz-fg-1)]">{r.signature}</span> },
-  { key: "src", header: "Source", render: (r) => <span className="mono text-[12px]">{endpoint(r.src, r.spt)}</span> },
-  { key: "dst", header: "Destination", render: (r) => <span className="mono text-[12px]">{endpoint(r.dst, r.dpt)}</span> },
+  { key: "time", header: "Time", render: (r) => <span className="mono text-[12px] text-[var(--qz-fg-2)]">{fmtClock(r.ts)}</span>, width: 100 },
+  { key: "level", header: "Level", render: (r) => levelDot(r.level), width: 120 },
   { key: "action", header: "Action", render: (r) => verdictBadge(ipsVerdict(r)), width: 110 },
+  {
+    key: "sig",
+    header: "Signature",
+    render: (r) => (
+      <span>
+        <span className="text-[var(--qz-fg-1)]">{r.signature}</span>
+        {r.sid ? <span className="text-[var(--qz-fg-4)]"> · {r.sid}</span> : null}
+      </span>
+    ),
+  },
+  { key: "src", header: "Source", render: (r) => endpointCell(r.src, r.spt), width: 190 },
+  { key: "dst", header: "Destination", render: (r) => endpointCell(r.dst, r.dpt), width: 190 },
+  { key: "proto", header: "Proto", render: (r) => <span className="mono text-[12px] text-[var(--qz-fg-4)]">{r.proto ?? "—"}</span>, width: 80 },
 ];
 
 export function IpsLogPanel() {
@@ -245,7 +462,12 @@ export function IpsLogPanel() {
       rowKey={alertKey}
       verdictOf={ipsVerdict}
       searchOf={(r) => `${r.signature} ${r.category ?? ""} ${r.src ?? ""} ${r.dst ?? ""}`}
-      updated={log.updated}
+      searchPlaceholder="Filter alerts…"
+      noun="alerts"
+      levelOptions={THREAT_LEVELS.map((t) => ({ value: t.level, label: t.label, color: t.color }))}
+      levelOf={(r) => r.level}
+      timeOf={(r) => r.ts}
+      storageKey="ips"
       error={log.error}
       loading={log.loading}
       paused={log.paused}
@@ -261,12 +483,16 @@ export function IpsLogPanel() {
 const acVerdict = (e: AcEvent): Verdict => (e.action === "block" ? "blocked" : "allowed");
 
 const AC_COLS: LogColumn<AcEvent>[] = [
-  { key: "time", header: "Time", render: (r) => fmtTime(r.ts), width: 180 },
-  { key: "app", header: "Application", render: (r) => <span className="text-[var(--qz-fg-1)]">{r.app}</span> },
-  { key: "cat", header: "Category", render: (r) => <span className="text-[var(--qz-fg-2)]">{r.category ?? "—"}</span>, width: 150 },
-  { key: "src", header: "Source", render: (r) => <span className="mono text-[12px]">{endpoint(r.src, r.spt)}</span> },
-  { key: "dst", header: "Destination", render: (r) => <span className="mono text-[12px]">{r.sni || endpoint(r.dst, r.dpt)}</span> },
-  { key: "action", header: "Action", render: (r) => verdictBadge(acVerdict(r)), width: 110 },
+  { key: "time", header: "Time", render: (r) => <span className="mono text-[12px] text-[var(--qz-fg-2)]">{fmtClock(r.ts)}</span>, width: 100 },
+  { key: "action", header: "Action", render: (r) => verdictBadge(acVerdict(r)), width: 100 },
+  { key: "app", header: "Application", render: (r) => <span className="text-[var(--qz-fg-1)]">{r.app}</span>, width: 130 },
+  { key: "cat", header: "Category", render: (r) => <span className="text-[var(--qz-fg-2)]">{r.category ?? "—"}</span>, width: 130 },
+  // Source and Destination stay in their own columns (the local WebUI merges
+  // them into one "Source → Destination" cell — kept split here on request).
+  { key: "src", header: "Source", render: (r) => endpointCell(r.src, r.spt), width: 190 },
+  { key: "dst", header: "Destination", render: (r) => endpointCell(r.dst, r.dpt), width: 190 },
+  { key: "sni", header: "SNI / Host", render: (r) => <span className="text-[var(--qz-fg-1)]">{r.sni || "—"}</span> },
+  { key: "policy", header: "Policy", render: (r) => <span className="text-[var(--qz-fg-2)]">{r.action_name || "—"}</span>, width: 120 },
 ];
 
 export function AppControlLogPanel() {
@@ -280,7 +506,10 @@ export function AppControlLogPanel() {
       rowKey={acKey}
       verdictOf={acVerdict}
       searchOf={(r) => `${r.app} ${r.category ?? ""} ${r.sni ?? ""} ${r.src ?? ""} ${r.dst ?? ""}`}
-      updated={log.updated}
+      searchPlaceholder="Filter alerts…"
+      noun="alerts"
+      timeOf={(r) => r.ts}
+      storageKey="appcontrol"
       error={log.error}
       loading={log.loading}
       paused={log.paused}
@@ -313,7 +542,9 @@ export function GeolocationLogPanel() {
       rowKey={geoEventKey}
       verdictFilter={false}
       searchOf={(r) => `${r.country_name ?? ""} ${r.country ?? ""} ${r.src ?? ""} ${r.dst ?? ""} ${r.action_name}`}
-      updated={log.updated}
+      noun="blocks"
+      timeOf={(r) => r.ts}
+      storageKey="geolocation"
       error={log.error}
       loading={log.loading}
       paused={log.paused}
@@ -350,7 +581,10 @@ export function ContentFilteringLogPanel() {
       rowKey={cfKey}
       verdictOf={cfVerdict}
       searchOf={(r) => `${r.url} ${r.category ?? ""} ${r.client_ip} ${r.user ?? ""} ${r.reason ?? ""}`}
-      updated={log.updated}
+      searchPlaceholder="Filter requests…"
+      noun="requests"
+      timeOf={(r) => Date.parse(r.ts)}
+      storageKey="content-filtering"
       error={log.error}
       loading={log.loading}
       paused={log.paused}

@@ -138,6 +138,11 @@ export function MonitorNav() {
           const Icon = group.icon;
 
           // A childless group is a direct top-level link (the Overview page).
+          // Build the class fresh here (not from groupClass) so the active
+          // branch fully owns text/border color — reusing groupClass would bake
+          // in `text-fg-3`/`border-transparent` that then conflict with the
+          // active accent utilities and win unpredictably, leaving Overview
+          // looking unlike every other selected nav item.
           if (group.children.length === 0) {
             const href = base + group.segment;
             const active = group.exact ? pathname === href : pathname.startsWith(href);
@@ -146,10 +151,10 @@ export function MonitorNav() {
                 key={group.id}
                 href={href}
                 className={[
-                  groupClass,
+                  "flex items-center gap-[10px] px-[10px] py-[8px] rounded-md text-[13.5px] font-medium border transition-all duration-[120ms] no-underline w-full text-left cursor-pointer",
                   active
                     ? "bg-[var(--qz-accent-soft)] text-[var(--qz-accent)] border-[color-mix(in_oklab,var(--qz-accent)_30%,transparent)]"
-                    : "",
+                    : "text-[var(--qz-fg-3)] border-transparent hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]",
                 ].join(" ")}
               >
                 <Icon size={16} />

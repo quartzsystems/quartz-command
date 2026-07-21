@@ -28,7 +28,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { ChartTooltip } from "@/components/ui/ChartTooltip";
 import type { TooltipRow } from "@/components/ui/ChartTooltip";
 import { emptyFirewallConfig, fetchFirewall, FirewallConfig } from "@/lib/device/firewall";
-import { fetchFlows, FlowRecord, FlowsResponse, FlowWindow } from "@/lib/device/flows";
+import { fetchFlows, FlowRecord, FlowsResponse, FlowWindow, isLoopbackFlow } from "@/lib/device/flows";
 import type { FlowMetric } from "@/lib/device/flows";
 import { formatBytes } from "@/lib/device/format";
 import { useColumnResize } from "@/components/dashboard/ColumnResize";
@@ -407,14 +407,23 @@ export function TrafficFlowPanel() {
   }, [order, metric, window_, verdictFilter]);
 
   // ── named views ──
+  // Persist imperatively (only saveView/delete ever mutate this), NOT via an
+  // effect keyed on [views]: such an effect fires on first mount too, and when
+  // the SSR pass seeds `views` empty it would immediately overwrite storage
+  // with `{}` before the client ever reads it — the reason saved views weren't
+  // surviving a reload. The mount effect below re-reads storage on the client.
   const [views, setViews] = useState<Record<string, SankeyView>>(loadViews);
   useEffect(() => {
+    setViews(loadViews());
+  }, []);
+  const persistViews = (next: Record<string, SankeyView>) => {
+    setViews(next);
     try {
-      window.localStorage.setItem(VIEWS_KEY, JSON.stringify(views));
+      window.localStorage.setItem(VIEWS_KEY, JSON.stringify(next));
     } catch {
       /* ignore quota / serialization errors */
     }
-  }, [views]);
+  };
 
   const [viewsOpen, setViewsOpen] = useState(false);
   const [viewName, setViewName] = useState("");
@@ -438,10 +447,10 @@ export function TrafficFlowPanel() {
   const saveView = () => {
     const name = viewName.trim();
     if (!name) return;
-    setViews((prev) => ({
-      ...prev,
+    persistViews({
+      ...views,
       [name]: { order, metric, window: window_, verdict: verdictFilter },
-    }));
+    });
     setViewName("");
     setViewsOpen(false);
   };
@@ -486,6 +495,7 @@ export function TrafficFlowPanel() {
   const filtered = useMemo(() => {
     const all = resp?.flows ?? [];
     return all.filter((r) => {
+      if (isLoopbackFlow(r)) return false;
       if (verdictFilter !== "all" && verdictOf(r) !== verdictFilter) return false;
       for (const [facet, keys] of filters) {
         const k = FACET_BY_ID.get(facet)!.key(r) ?? "\x00none";
@@ -717,11 +727,9 @@ export function TrafficFlowPanel() {
                         <button
                           type="button"
                           onClick={() =>
-                            setViews((prev) => {
-                              const next = { ...prev };
-                              delete next[name];
-                              return next;
-                            })
+                            persistViews(
+                              Object.fromEntries(Object.entries(views).filter(([n]) => n !== name)),
+                            )
                           }
                           className="p-1 mr-2 rounded bg-transparent border-0 text-[var(--qz-fg-4)] hover:text-[var(--qz-danger)] transition-colors cursor-pointer flex-shrink-0"
                           title="Delete view"

@@ -54,6 +54,21 @@ export async function fetchFlows(window: FlowWindow, metric: FlowMetric, limit =
   return apiFetch<FlowsResponse>(`/monitoring/flows?window=${window}&metric=${metric}&limit=${limit}`);
 }
 
+function isLoopbackAddr(ip?: string): boolean {
+  if (!ip) return false;
+  return ip === "::1" || ip.startsWith("127.");
+}
+
+/** True for the firewall talking to itself over loopback — chiefly its own
+ * internal API connections. That traffic isn't network traffic worth charting,
+ * yet it otherwise dominates the flow dashboards as a huge "127.0.0.1" talker,
+ * so the Sankey / treemap exclude it. NOTE: this is a UI-side guard; the honest
+ * fix is upstream in qfdevd's flow recording so device-reported window totals
+ * (which still count loopback) and the local WebUI drop it too. */
+export function isLoopbackFlow(f: FlowRecord): boolean {
+  return isLoopbackAddr(f.src) || isLoopbackAddr(f.dst);
+}
+
 /// One rule move of a reorder: (chain, old number) → new number.
 export interface AttributionMove {
   chain: string;

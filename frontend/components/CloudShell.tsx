@@ -444,8 +444,12 @@ export function CloudShell({
               // device inside it is the active scope.
               const subActive = pathname.startsWith(href) && !pathname.startsWith(deviceBase);
               // One firewall link, reused for folder-nested and ungrouped rows;
-              // padClass sets the indent depth.
-              const deviceLink = (d: Device, padClass: string) => {
+              // indentClass sets the indent depth. The left margin (not padding)
+              // insets the highlight pill from the sidebar edge so a selected
+              // firewall "cuts off" on the left like the Configure/Monitor
+              // sub-nav leaves — no `w-full` here so the flex column stretches
+              // the row to fill the remaining width beside that margin.
+              const deviceLink = (d: Device, indentClass: string) => {
                 const deviceHref = `${deviceBase}${d.device_id}`;
                 return (
                   <Link
@@ -456,7 +460,7 @@ export function CloudShell({
                     href={`${deviceHref}${sectionSuffix}`}
                     title={d.hostname ?? d.device_id}
                     className={[
-                      `flex items-center gap-[8px] ${padClass} pr-[10px] py-[6px] rounded-md text-[12.5px] font-medium border transition-all duration-[120ms] no-underline w-full text-left cursor-pointer`,
+                      `flex items-center gap-[8px] ${indentClass} pr-[10px] py-[6px] rounded-md text-[12.5px] font-medium border transition-all duration-[120ms] no-underline text-left cursor-pointer`,
                       pathname.startsWith(deviceHref)
                         ? "bg-[var(--qz-accent-soft)] text-[var(--qz-accent)] border-[color-mix(in_oklab,var(--qz-accent)_30%,transparent)]"
                         : "text-[var(--qz-fg-3)] border-transparent hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]",
@@ -521,11 +525,11 @@ export function CloudShell({
                                 {folderDevices.length}
                               </span>
                             </button>
-                            {folderOpen && folderDevices.map((d) => deviceLink(d, "pl-[46px]"))}
+                            {folderOpen && folderDevices.map((d) => deviceLink(d, "ml-[26px] pl-[20px]"))}
                           </div>
                         );
                       })}
-                      {subDevices.filter((d) => !d.folder_id).map((d) => deviceLink(d, "pl-[30px]"))}
+                      {subDevices.filter((d) => !d.folder_id).map((d) => deviceLink(d, "ml-[26px] pl-[10px]"))}
                     </>
                   )}
                 </div>

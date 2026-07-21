@@ -17,7 +17,7 @@ import { RotateCw, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
 import { ChartTooltip } from "@/components/ui/ChartTooltip";
-import { fetchFlows, FlowRecord, FlowMetric, FlowsResponse, FlowWindow } from "@/lib/device/flows";
+import { fetchFlows, FlowRecord, FlowMetric, FlowsResponse, FlowWindow, isLoopbackFlow } from "@/lib/device/flows";
 import {
   fetchGeoCountries,
   fetchGeoTraffic,
@@ -204,7 +204,7 @@ interface ActiveFilter {
 }
 
 function QuartzWatchView({
-  flows,
+  flows: allFlows,
   countries,
   geoAvailable,
   available,
@@ -233,6 +233,10 @@ function QuartzWatchView({
   const [tab, setTab] = useState<TabId>("src");
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
   const isCountry = tab === "country";
+
+  // Drop the firewall's own loopback traffic (internal API calls) so it doesn't
+  // dominate the top-talkers treemap as a giant "127.0.0.1" block.
+  const flows = useMemo(() => allFlows.filter((f) => !isLoopbackFlow(f)), [allFlows]);
 
   // IP → device name, from the flow records the backend already enriches.
   const names = useMemo(() => {
