@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
-# Universal Quartz Command installer for Debian/Ubuntu and Fedora/RHEL-family
-# Linux. Installs PostgreSQL from the distro repos, provisions the role and
-# database, installs the latest quartz-command .deb/.rpm from GitHub releases,
-# writes /etc/quartz-command/backend.env, puts nginx on :443 (self-signed TLS,
-# proxying the loopback frontend), and starts the systemd services.
+# Universal Quartz Command installer & updater for Debian/Ubuntu and
+# Fedora/RHEL-family Linux.
+#
+# Fresh host: installs PostgreSQL from the distro repos, provisions the role
+# and database, installs the latest quartz-command .deb/.rpm from GitHub
+# releases, writes /etc/quartz-command/backend.env, puts nginx on :443
+# (self-signed TLS, proxying the loopback frontend), and starts the systemd
+# services.
+#
+# Host with an existing, configured install: switches to update mode — the
+# database and the (conffile-marked) /etc/quartz-command/*.env files are never
+# touched. Downloads the requested release, upgrades the package in place,
+# restarts the backend (embedded migrations run on boot), verifies health,
+# then restarts the frontend.
 #
 #   curl -fsSL https://raw.githubusercontent.com/quartzsystems/quartz-command/main/scripts/install.sh | sudo bash
 #
 # Environment overrides:
-#   QC_REPO=owner/repo     GitHub repo to download from (default quartzsystems/quartz-command)
-#   QC_VERSION=1.2.3       Install a specific release instead of the latest
-#
-# Safe to re-run: existing PostgreSQL data, an already-configured backend.env,
-# and running services are left alone; the package itself is upgraded.
+#   QC_REPO=owner/repo       GitHub repo to download from (default quartzsystems/quartz-command)
+#   QC_VERSION=1.2.3         Install/update to a specific release instead of the latest
+#   QC_ALLOW_DOWNGRADE=1     Permit installing an older version than the current one.
+#                            Note: database migrations are forward-only — rolling back
+#                            across a release that migrated the schema may not work.
 set -euo pipefail
 
 QC_REPO="${QC_REPO:-quartzsystems/quartz-command}"
 QC_VERSION="${QC_VERSION:-}"
+QC_ALLOW_DOWNGRADE="${QC_ALLOW_DOWNGRADE:-}"
 
 ENV_FILE=/etc/quartz-command/backend.env
 TLS_DIR=/etc/quartz-command/tls
@@ -47,6 +57,150 @@ if [ "$FAMILY" = rpm ]; then
 fi
 
 log "Detected $PRETTY_NAME ($FAMILY-family)"
+
+# ── release lookup & download (shared by install and update modes) ──────────
+
+# Sets RELEASE_JSON and TARGET (the release version, without the leading v).
+fetch_release() {
+    local api
+    if [ -n "$QC_VERSION" ]; then
+        api="https://api.github.com/repos/$QC_REPO/releases/tags/v${QC_VERSION#v}"
+    else
+        api="https://api.github.com/repos/$QC_REPO/releases/latest"
+    fi
+    log "Looking up release assets ($api)"
+    RELEASE_JSON="$(curl -fsSL "$api")" || die "could not query GitHub releases for $QC_REPO"
+    TARGET="$(printf '%s' "$RELEASE_JSON" | grep -oE '"tag_name": *"[^"]+"' | head -n 1 \
+        | grep -oE 'v?[0-9][^"]*' | sed 's/^v//')"
+    [ -n "$TARGET" ] || die "could not determine the release version from $api"
+}
+
+# Sets PKG_FILE to the downloaded .deb/.rpm for this machine's architecture.
+download_package() {
+    local asset_filter url tmp
+    if [ "$FAMILY" = deb ]; then
+        asset_filter="_$(dpkg --print-architecture)\.deb"
+    else
+        asset_filter="$(uname -m)\.rpm"
+    fi
+    url="$(printf '%s' "$RELEASE_JSON" \
+        | grep -oE '"browser_download_url": *"[^"]+"' \
+        | grep -oE 'https://[^"]+' \
+        | grep -E "$asset_filter" | head -n 1 || true)"
+    [ -n "$url" ] || die "release v$TARGET has no ${FAMILY} package matching '$asset_filter' — build one with scripts/build-${FAMILY}.sh"
+
+    tmp="$(mktemp -d)"
+    PKG_FILE="$tmp/${url##*/}"
+    log "Downloading ${url##*/}"
+    curl -fsSL -o "$PKG_FILE" "$url"
+}
+
+install_package() {
+    log "Installing quartz-command $TARGET"
+    if [ "$FAMILY" = deb ]; then
+        if [ -n "$QC_ALLOW_DOWNGRADE" ]; then
+            apt-get install -y -qq --allow-downgrades "$PKG_FILE" || die "package install failed"
+        else
+            apt-get install -y -qq "$PKG_FILE" \
+                || die "package install failed — a downgrade needs QC_ALLOW_DOWNGRADE=1; on a fresh install the distro's nodejs may be older than 18.17"
+        fi
+    else
+        if [ -n "$QC_ALLOW_DOWNGRADE" ]; then
+            "$PKG" downgrade -y -q "$PKG_FILE" 2>/dev/null \
+                || "$PKG" install -y -q "$PKG_FILE" \
+                || die "package install failed"
+        elif ! "$PKG" install -y -q "$PKG_FILE"; then
+            # RHEL 8/9 default nodejs module stream can be < 18; try a newer
+            # stream and retry once. (Fedora has no module streams; this is a
+            # harmless no-op failure there.)
+            warn "install failed — enabling the nodejs:20 module stream and retrying"
+            "$PKG" -y module reset nodejs >/dev/null 2>&1 || true
+            "$PKG" -y module enable nodejs:20 >/dev/null 2>&1 || true
+            "$PKG" install -y -q "$PKG_FILE" \
+                || die "package install failed (downgrade? re-run with QC_ALLOW_DOWNGRADE=1)"
+        fi
+    fi
+}
+
+# ── update mode ─────────────────────────────────────────────────────────────
+
+installed_version() {
+    if [ "$FAMILY" = deb ]; then
+        dpkg-query -W -f='${Version}' quartz-command 2>/dev/null || true
+    else
+        local v
+        v="$(rpm -q --qf '%{VERSION}' quartz-command 2>/dev/null || true)"
+        case "$v" in *"not installed"*) v="" ;; esac
+        printf '%s' "$v"
+    fi
+}
+
+run_update() {
+    command -v curl >/dev/null || die "curl is required"
+    log "Existing install detected (quartz-command $INSTALLED) — running in update mode"
+
+    fetch_release
+    if [ "$TARGET" = "$INSTALLED" ]; then
+        log "Already on $INSTALLED — nothing to do."
+        log "(Services were left alone; to restart them anyway: systemctl restart quartz-command-backend quartz-command-frontend)"
+        exit 0
+    fi
+    log "Updating $INSTALLED → $TARGET"
+
+    download_package
+    install_package
+
+    # Graceful restart: backend first (migrations run on startup), verify
+    # health, then the frontend. The package upgrade replaced binaries only;
+    # dpkg conffiles / rpm %config(noreplace) keep /etc/quartz-command/*.env.
+    local rollback_hint="QC_VERSION=$INSTALLED QC_ALLOW_DOWNGRADE=1 curl -fsSL https://raw.githubusercontent.com/$QC_REPO/main/scripts/install.sh | sudo bash"
+
+    log "Restarting backend (database migrations run on startup)"
+    systemctl restart quartz-command-backend
+
+    log "Waiting for the backend to become healthy"
+    local backend_ok=""
+    for _ in $(seq 1 60); do
+        if curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
+            backend_ok=1
+            break
+        fi
+        sleep 1
+    done
+    if [ -z "$backend_ok" ]; then
+        warn "backend is not healthy after the update"
+        warn "  inspect:   journalctl -u quartz-command-backend -n 50"
+        warn "  roll back: $rollback_hint"
+        die "update to $TARGET failed health check"
+    fi
+
+    log "Restarting frontend"
+    systemctl restart quartz-command-frontend
+    for _ in $(seq 1 30); do
+        if curl -fsSk https://127.0.0.1/login >/dev/null 2>&1 \
+            || curl -fsS http://127.0.0.1:3000/login >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+
+    echo
+    log "Quartz Command updated: $INSTALLED → $TARGET"
+    echo
+    echo "  If anything looks wrong:"
+    echo "    logs:      journalctl -u quartz-command-backend -u quartz-command-frontend"
+    echo "    roll back: $rollback_hint"
+    exit 0
+}
+
+INSTALLED="$(installed_version)"
+if [ -n "$INSTALLED" ] && [ -f "$ENV_FILE" ] && ! grep -q 'CHANGE_ME' "$ENV_FILE"; then
+    run_update # exits when done
+fi
+
+# ── fresh install from here on ──────────────────────────────────────────────
+# (Also reached when the package is present but backend.env was never
+# configured — a broken or half-finished install gets re-provisioned.)
 
 # ── prerequisites ───────────────────────────────────────────────────────────
 
@@ -203,54 +357,6 @@ open_firewall() {
     fi
 }
 
-# ── quartz-command package ──────────────────────────────────────────────────
-
-download_package() {
-    local api asset_filter json url tmp
-    if [ -n "$QC_VERSION" ]; then
-        api="https://api.github.com/repos/$QC_REPO/releases/tags/v${QC_VERSION#v}"
-    else
-        api="https://api.github.com/repos/$QC_REPO/releases/latest"
-    fi
-
-    if [ "$FAMILY" = deb ]; then
-        asset_filter="_$(dpkg --print-architecture)\.deb"
-    else
-        asset_filter="$(uname -m)\.rpm"
-    fi
-
-    log "Looking up release assets ($api)"
-    json="$(curl -fsSL "$api")" || die "could not query GitHub releases for $QC_REPO"
-    url="$(printf '%s' "$json" \
-        | grep -oE '"browser_download_url": *"[^"]+"' \
-        | grep -oE 'https://[^"]+' \
-        | grep -E "$asset_filter" | head -n 1 || true)"
-    [ -n "$url" ] || die "no ${FAMILY} package matching '$asset_filter' in the release — build one with scripts/build-${FAMILY}.sh"
-
-    tmp="$(mktemp -d)"
-    PKG_FILE="$tmp/${url##*/}"
-    log "Downloading ${url##*/}"
-    curl -fsSL -o "$PKG_FILE" "$url"
-}
-
-install_package() {
-    log "Installing quartz-command package"
-    if [ "$FAMILY" = deb ]; then
-        # apt resolves the nodejs dependency from the distro repos.
-        apt-get install -y -qq "$PKG_FILE" || die "package install failed — the distro's nodejs may be older than 18.17; install Node 18+ and re-run"
-    else
-        if ! "$PKG" install -y -q "$PKG_FILE"; then
-            # RHEL 8/9 default nodejs module stream can be < 18; try a newer
-            # stream and retry once. (Fedora has no module streams; this is a
-            # harmless no-op failure there.)
-            warn "install failed — enabling the nodejs:20 module stream and retrying"
-            "$PKG" -y module reset nodejs >/dev/null 2>&1 || true
-            "$PKG" -y module enable nodejs:20 >/dev/null 2>&1 || true
-            "$PKG" install -y -q "$PKG_FILE" || die "package install failed"
-        fi
-    fi
-}
-
 # ── configuration ───────────────────────────────────────────────────────────
 
 configure_backend() {
@@ -283,7 +389,10 @@ configure_backend() {
 start_services() {
     log "Starting services"
     systemctl daemon-reload
-    systemctl enable --now quartz-command-backend quartz-command-frontend >/dev/null 2>&1
+    systemctl enable quartz-command-backend quartz-command-frontend >/dev/null 2>&1
+    # restart (not `enable --now`): if a half-configured install left services
+    # running, they must pick up the freshly written backend.env.
+    systemctl restart quartz-command-backend quartz-command-frontend
 
     log "Waiting for the backend to come up"
     local backend_ok=""
@@ -319,6 +428,7 @@ install_postgres
 fix_pg_hba
 provision_database
 install_web_proxy
+fetch_release
 download_package
 install_package
 configure_backend
