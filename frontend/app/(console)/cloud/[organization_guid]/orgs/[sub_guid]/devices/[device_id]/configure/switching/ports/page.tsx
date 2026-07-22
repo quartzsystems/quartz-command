@@ -1,19 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, RotateCw } from "lucide-react";
+import { AlertTriangle, Pencil, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Column, DataTable, FilterDef } from "@/components/dashboard/DataTable";
+import { Toast } from "@/components/dashboard/Toast";
 import {
   SwitchPort,
+  SwitchVlan,
   fetchSwitchPorts,
+  fetchVlans,
   formatPortSpeed,
 } from "@/lib/device/switching";
+import { PortFormModal } from "./PortFormModal";
 
-/// Oper status wins the pill; an admin-shut port is called out separately from
-/// one that is enabled but has no link.
+/// Admin state — what the config says the port should be.
 function StatusPill({ port }: { port: SwitchPort }) {
-  if (port.admin_status === "down") return <span className="badge badge-muted">Admin Down</span>;
+  return port.admin_status === "up" ? (
+    <span className="badge badge-ok">Enabled</span>
+  ) : (
+    <span className="badge badge-muted">Disabled</span>
+  );
+}
+
+/// Live link state — whether the wire actually came up.
+function LinkPill({ port }: { port: SwitchPort }) {
   if (port.oper_status === "up") return <span className="badge badge-ok">Up</span>;
   if (port.oper_status === "down") return <span className="badge badge-crit">Down</span>;
   return <span className="badge badge-muted">Unknown</span>;
@@ -106,28 +117,41 @@ const columns: Column<SwitchPort>[] = [
     width: 110,
   },
   {
+    key: "link",
+    header: "Link",
+    value: (r) => r.oper_status,
+    render: (r) => <LinkPill port={r} />,
+    sortable: true,
+    width: 100,
+  },
+  {
     key: "status",
     header: "Status",
-    value: (r) => (r.admin_status === "down" ? "admin-down" : r.oper_status),
+    value: (r) => r.admin_status,
     render: (r) => <StatusPill port={r} />,
     sortable: true,
-    width: 120,
+    width: 110,
   },
 ];
 
 const filters: FilterDef<SwitchPort>[] = [
   {
-    key: "status",
-    label: "Status",
+    key: "link",
+    label: "Link",
     options: [
       { value: "up", label: "Up" },
       { value: "down", label: "Down" },
-      { value: "admin-down", label: "Admin Down" },
     ],
-    predicate: (r, v) =>
-      v === "admin-down"
-        ? r.admin_status === "down"
-        : r.admin_status === "up" && r.oper_status === v,
+    predicate: (r, v) => r.oper_status === v,
+  },
+  {
+    key: "status",
+    label: "Status",
+    options: [
+      { value: "up", label: "Enabled" },
+      { value: "down", label: "Disabled" },
+    ],
+    predicate: (r, v) => r.admin_status === v,
   },
   {
     key: "vlan_mode",
@@ -143,13 +167,18 @@ const filters: FilterDef<SwitchPort>[] = [
 
 export default function PortsPage() {
   const [rows, setRows] = useState<SwitchPort[]>([]);
+  const [vlans, setVlans] = useState<SwitchVlan[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState("");
+  const [editing, setEditing] = useState<SwitchPort | null>(null);
+  const [toast, setToast] = useState("");
 
   const load = useCallback(async (mode: "load" | "refresh" = "load") => {
     if (mode === "load") setStatus("loading");
     try {
-      setRows(await fetchSwitchPorts());
+      const [ports, vlanRows] = await Promise.all([fetchSwitchPorts(), fetchVlans()]);
+      setRows(ports);
+      setVlans(vlanRows);
       setStatus("ready");
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Failed to load ports.");
@@ -195,9 +224,35 @@ export default function PortsPage() {
             searchPlaceholder="Search ports…"
             emptyMessage="No switch ports found."
             onRefresh={() => load("refresh")}
+            actionsWidth={60}
+            actions={(r) => (
+              <button
+                type="button"
+                title={`Edit ${r.name}`}
+                aria-label="Edit"
+                onClick={() => setEditing(r)}
+                className="grid place-items-center w-7 h-7 rounded-md bg-transparent border-0 text-[var(--qz-fg-4)] hover:text-[var(--qz-accent)] hover:bg-[color-mix(in_oklab,white_5%,transparent)] transition-colors cursor-pointer"
+              >
+                <Pencil size={14} />
+              </button>
+            )}
           />
         )}
       </div>
+
+      {editing && (
+        <PortFormModal
+          port={editing}
+          vlans={vlans}
+          onClose={() => setEditing(null)}
+          onSaved={(message) => {
+            setEditing(null);
+            setToast(message);
+            load("refresh");
+          }}
+        />
+      )}
+      {toast && <Toast message={toast} onDismiss={() => setToast("")} />}
     </div>
   );
 }

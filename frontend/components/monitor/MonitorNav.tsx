@@ -23,6 +23,7 @@ import {
   Spline,
   Waypoints,
 } from "lucide-react";
+import { useCloudOrg } from "@/components/CloudShell";
 import { setDeviceScope } from "@/lib/device/api";
 
 interface NavChild {
@@ -118,6 +119,15 @@ export function MonitorNav() {
     ? `/cloud/${params.organization_guid}/orgs/${params.sub_guid}/devices/${params.device_id}/monitor`
     : `/cloud/${params.organization_guid}/orgs/${params.sub_guid}/monitor`;
 
+  // The dashboards / logs / routing / VPN groups are firewall telemetry — a
+  // QuartzSONiC switch has none of it, so its Monitor is the Overview alone.
+  const { devices } = useCloudOrg();
+  const device = params.device_id
+    ? (devices ?? []).find((d) => d.device_id === params.device_id)
+    : undefined;
+  const groups =
+    device?.product === "quartzsonic" ? GROUPS.filter((g) => g.id === "overview") : GROUPS;
+
   // Open if explicitly toggled, else default-open when one of the group's
   // children is the active route (children needn't share a path prefix).
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
@@ -134,7 +144,7 @@ export function MonitorNav() {
   return (
     <div className="flex-shrink-0 w-[240px]" style={{ borderRight: "1px solid var(--qz-border)" }}>
       <nav className="sticky top-0 px-3 pt-6 flex flex-col gap-[2px]">
-        {GROUPS.map((group) => {
+        {groups.map((group) => {
           const Icon = group.icon;
 
           // A childless group is a direct top-level link (the Overview page).

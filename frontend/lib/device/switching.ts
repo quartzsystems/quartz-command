@@ -8,6 +8,25 @@
 
 import { apiFetch } from "@/lib/device/api";
 
+// ── System info ─────────────────────────────────────────────────────────────
+
+/** `GET /api/system/info` — the switch's identity facts, read from SONiC's
+ *  CONFIG_DB DEVICE_METADATA / sonic_version.yml by the agent. */
+export interface SwitchSystemInfo {
+  device_id: string;
+  hostname: string | null;
+  sonic_version: string | null;
+  platform: string | null;
+  hwsku: string | null;
+  serial: string | null;
+  uptime_secs: number | null;
+  agent_version: string | null;
+}
+
+export async function fetchSwitchSystemInfo(): Promise<SwitchSystemInfo> {
+  return apiFetch<SwitchSystemInfo>("/system/info");
+}
+
 // ── Ports ───────────────────────────────────────────────────────────────────
 
 export type PortStatus = "up" | "down" | "unknown";
@@ -45,6 +64,27 @@ export async function fetchSwitchPorts(): Promise<SwitchPort[]> {
   return resp.ports;
 }
 
+/** Editable subset of a port's config. Omitted fields are left untouched;
+ *  `vlan_mode` (with `untagged_vlan` / `tagged_vlans`) rewrites the port's
+ *  VLAN_MEMBER rows as a set. */
+export interface SwitchPortPatch {
+  description?: string | null;
+  admin_status?: "up" | "down";
+  mtu?: number | null;
+  speed_mbps?: number | null;
+  fec?: string | null;
+  vlan_mode?: VlanMode;
+  untagged_vlan?: number | null;
+  tagged_vlans?: number[];
+}
+
+export async function updateSwitchPort(name: string, patch: SwitchPortPatch): Promise<void> {
+  await apiFetch(`/switching/ports/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
 // ── Port channels ───────────────────────────────────────────────────────────
 
 export interface PortChannelMember {
@@ -73,6 +113,36 @@ export async function fetchPortChannels(): Promise<PortChannel[]> {
   return resp.port_channels;
 }
 
+/** Create/update payload for a port channel. `members` is the full desired
+ *  member set — the agent diffs it against PORTCHANNEL_MEMBER. */
+export interface PortChannelInput {
+  protocol: "lacp" | "static";
+  admin_status: "up" | "down";
+  mtu?: number | null;
+  min_links?: number | null;
+  fallback: boolean;
+  fast_rate: boolean;
+  members: string[];
+}
+
+export async function createPortChannel(name: string, input: PortChannelInput): Promise<void> {
+  await apiFetch("/switching/port-channels", {
+    method: "POST",
+    body: JSON.stringify({ name, ...input }),
+  });
+}
+
+export async function updatePortChannel(name: string, input: PortChannelInput): Promise<void> {
+  await apiFetch(`/switching/port-channels/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deletePortChannel(name: string): Promise<void> {
+  await apiFetch(`/switching/port-channels/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
 // ── VLANs ───────────────────────────────────────────────────────────────────
 
 export interface VlanMember {
@@ -96,6 +166,34 @@ export interface SwitchVlan {
 export async function fetchVlans(): Promise<SwitchVlan[]> {
   const resp = await apiFetch<{ vlans: SwitchVlan[] }>("/switching/vlans");
   return resp.vlans;
+}
+
+/** Create/update payload for a VLAN. `members`, `ip_addresses`, and
+ *  `dhcp_helpers` are the full desired sets — the agent diffs them against
+ *  VLAN_MEMBER / VLAN_INTERFACE / the VLAN's dhcp_servers list. */
+export interface SwitchVlanInput {
+  description?: string | null;
+  ip_addresses: string[];
+  dhcp_helpers: string[];
+  members: VlanMember[];
+}
+
+export async function createSwitchVlan(vlanId: number, input: SwitchVlanInput): Promise<void> {
+  await apiFetch("/switching/vlans", {
+    method: "POST",
+    body: JSON.stringify({ vlan_id: vlanId, ...input }),
+  });
+}
+
+export async function updateSwitchVlan(vlanId: number, input: SwitchVlanInput): Promise<void> {
+  await apiFetch(`/switching/vlans/${vlanId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteSwitchVlan(vlanId: number): Promise<void> {
+  await apiFetch(`/switching/vlans/${vlanId}`, { method: "DELETE" });
 }
 
 // ── Formatting helpers ──────────────────────────────────────────────────────

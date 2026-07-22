@@ -1,13 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, RotateCw } from "lucide-react";
+import { AlertTriangle, Plus, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Column, DataTable, FilterDef } from "@/components/dashboard/DataTable";
-import { PortChannel, fetchPortChannels } from "@/lib/device/switching";
+import { RowActions } from "@/components/dashboard/RowActions";
+import { Toast } from "@/components/dashboard/Toast";
+import {
+  PortChannel,
+  deletePortChannel,
+  fetchPortChannels,
+  fetchSwitchPorts,
+} from "@/lib/device/switching";
+import { PortChannelFormModal } from "./PortChannelFormModal";
 
+/// Admin state — what the config says the LAG should be.
 function StatusPill({ pc }: { pc: PortChannel }) {
-  if (pc.admin_status === "down") return <span className="badge badge-muted">Admin Down</span>;
+  return pc.admin_status === "up" ? (
+    <span className="badge badge-ok">Enabled</span>
+  ) : (
+    <span className="badge badge-muted">Disabled</span>
+  );
+}
+
+/// Live link state of the aggregate.
+function LinkPill({ pc }: { pc: PortChannel }) {
   if (pc.oper_status === "up") return <span className="badge badge-ok">Up</span>;
   if (pc.oper_status === "down") return <span className="badge badge-crit">Down</span>;
   return <span className="badge badge-muted">Unknown</span>;
@@ -85,40 +102,60 @@ const columns: Column<PortChannel>[] = [
     width: 80,
   },
   {
+    key: "link",
+    header: "Link",
+    value: (r) => r.oper_status,
+    render: (r) => <LinkPill pc={r} />,
+    sortable: true,
+    width: 100,
+  },
+  {
     key: "status",
     header: "Status",
-    value: (r) => (r.admin_status === "down" ? "admin-down" : r.oper_status),
+    value: (r) => r.admin_status,
     render: (r) => <StatusPill pc={r} />,
     sortable: true,
-    width: 120,
+    width: 110,
   },
 ];
 
 const filters: FilterDef<PortChannel>[] = [
   {
-    key: "status",
-    label: "Status",
+    key: "link",
+    label: "Link",
     options: [
       { value: "up", label: "Up" },
       { value: "down", label: "Down" },
-      { value: "admin-down", label: "Admin Down" },
     ],
-    predicate: (r, v) =>
-      v === "admin-down"
-        ? r.admin_status === "down"
-        : r.admin_status === "up" && r.oper_status === v,
+    predicate: (r, v) => r.oper_status === v,
+  },
+  {
+    key: "status",
+    label: "Status",
+    options: [
+      { value: "up", label: "Enabled" },
+      { value: "down", label: "Disabled" },
+    ],
+    predicate: (r, v) => r.admin_status === v,
   },
 ];
 
 export default function PortChannelsPage() {
   const [rows, setRows] = useState<PortChannel[]>([]);
+  const [portCandidates, setPortCandidates] = useState<string[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState("");
+  const [modal, setModal] = useState<
+    { mode: "create" } | { mode: "edit"; pc: PortChannel } | null
+  >(null);
+  const [toast, setToast] = useState("");
 
   const load = useCallback(async (mode: "load" | "refresh" = "load") => {
     if (mode === "load") setStatus("loading");
     try {
-      setRows(await fetchPortChannels());
+      const [pcs, ports] = await Promise.all([fetchPortChannels(), fetchSwitchPorts()]);
+      setRows(pcs);
+      setPortCandidates(ports.map((p) => p.name));
       setStatus("ready");
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Failed to load port channels.");
@@ -129,6 +166,16 @@ export default function PortChannelsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const remove = async (pc: PortChannel) => {
+    try {
+      await deletePortChannel(pc.name);
+      setToast(`Deleted ${pc.name}.`);
+      await load("refresh");
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Failed to delete port channel.");
+    }
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -164,9 +211,36 @@ export default function PortChannelsPage() {
             searchPlaceholder="Search port channels…"
             emptyMessage="No port channels configured."
             onRefresh={() => load("refresh")}
+            toolbar={
+              <Button size="sm" icon={Plus} onClick={() => setModal({ mode: "create" })}>
+                Add Port Channel
+              </Button>
+            }
+            actions={(r) => (
+              <RowActions
+                label={r.name}
+                onEdit={() => setModal({ mode: "edit", pc: r })}
+                onDelete={() => remove(r)}
+              />
+            )}
           />
         )}
       </div>
+
+      {modal && (
+        <PortChannelFormModal
+          initial={modal.mode === "edit" ? modal.pc : undefined}
+          existing={rows}
+          portCandidates={portCandidates}
+          onClose={() => setModal(null)}
+          onSaved={(message) => {
+            setModal(null);
+            setToast(message);
+            load("refresh");
+          }}
+        />
+      )}
+      {toast && <Toast message={toast} onDismiss={() => setToast("")} />}
     </div>
   );
 }

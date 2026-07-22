@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { Device } from "@/lib/api";
+import type { Device, Product } from "@/lib/api";
 
 // The latest QuartzFire release, read straight from GitHub. The repo is public
 // and api.github.com serves CORS for public repos, so the browser can fetch it
@@ -37,13 +37,20 @@ export function parseVersion(s: string | null | undefined): Version | null {
 }
 
 /// A short, human-facing version label from a device's raw report string —
-/// "QuartzFire quartzfire-0.4.4 (qfagent…)" → "QuartzFire v0.4.4". Falls back
-/// to the trimmed raw string when there's no version-looking token, and to a
-/// dash when there's nothing at all.
-export function formatVersion(s: string | null | undefined): string {
+/// "QuartzFire quartzfire-0.4.4 (qfagent…)" → "QuartzFire v0.4.4". The label
+/// follows the device's product line (a QuartzSONiC switch reports the same
+/// bare "0.1.0" shape but must not be branded QuartzFire); product defaults to
+/// quartzfire for the firewall-only call sites. Falls back to the trimmed raw
+/// string when there's no version-looking token, and to a dash when there's
+/// nothing at all.
+export function formatVersion(
+  s: string | null | undefined,
+  product: Product = "quartzfire",
+): string {
   const v = parseVersion(s);
   if (!v) return s?.trim() || "—";
-  return `QuartzFire v${v[0]}.${v[1]}.${v[2]}`;
+  const label = product === "quartzsonic" ? "QuartzSONiC" : "QuartzFire";
+  return `${label} v${v[0]}.${v[1]}.${v[2]}`;
 }
 
 export function versionLt(a: Version, b: Version): boolean {

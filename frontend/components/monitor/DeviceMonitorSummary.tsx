@@ -24,6 +24,7 @@ import {
   type RuleCounter,
 } from "@/lib/device/firewall";
 import { formatBytes, formatUptime } from "@/lib/device/format";
+import { fetchSwitchSystemInfo, type SwitchSystemInfo } from "@/lib/device/switching";
 import { useMonitorTelemetry } from "@/lib/monitor/telemetry";
 
 const STATS_POLL_MS = 30_000;
@@ -49,6 +50,9 @@ export function DeviceMonitorSummary() {
 
   const name = (device?.hostname ?? deviceId).toUpperCase();
   const canManage = org?.role === "owner" || org?.role === "admin";
+  // Switches get their own Device Information (SONiC identity facts) and skip
+  // the firewall-only rows (security-service cards, Most Active Rules).
+  const isSwitch = device?.product === "quartzsonic";
 
   // ── Device stats (health + policies), polled at the device cadence. ────────
   const [stats, setStats] = useState<DeviceStatsResponse | null>(null);
@@ -72,6 +76,22 @@ export function DeviceMonitorSummary() {
   const latest = stats?.latest ?? null;
   const samples = stats?.samples ?? [];
   const publicIp = latest?.public_ip || device?.last_seen_ip || "—";
+
+  // ── SONiC identity (switches only), via the device proxy. ──────────────────
+  const [sonicInfo, setSonicInfo] = useState<SwitchSystemInfo | null>(null);
+  useEffect(() => {
+    if (!isSwitch || !device?.connected) {
+      setSonicInfo(null);
+      return;
+    }
+    let cancelled = false;
+    fetchSwitchSystemInfo()
+      .then((info) => !cancelled && setSonicInfo(info))
+      .catch(() => !cancelled && setSonicInfo(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [isSwitch, device?.connected]);
 
   // ── Reboot ─────────────────────────────────────────────────────────────────
   const [rebooting, setRebooting] = useState(false);
@@ -146,7 +166,21 @@ export function DeviceMonitorSummary() {
           <h2 className="text-[14px] font-semibold text-[var(--qz-fg-1)] m-0">Device Information</h2>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-[10px] m-0">
             <InfoRow label="Name" value={device?.hostname ?? deviceId} />
-            <InfoRow label="Version" value={formatVersion(device?.qf_version)} />
+            <InfoRow
+              label="Version"
+              value={formatVersion(
+                (isSwitch ? sonicInfo?.agent_version : null) ?? device?.qf_version,
+                device?.product,
+              )}
+            />
+            {isSwitch && (
+              <>
+                <InfoRow label="SONiC Version" value={sonicInfo?.sonic_version ?? "—"} mono />
+                <InfoRow label="Platform" value={sonicInfo?.platform ?? "—"} mono />
+                <InfoRow label="HWSKU" value={sonicInfo?.hwsku ?? "—"} mono />
+                <InfoRow label="Serial" value={sonicInfo?.serial ?? "—"} mono />
+              </>
+            )}
             <InfoRow label="Public IP" value={publicIp} mono />
             <InfoRow label="Uptime" value={formatUptime(latest?.uptime_secs)} />
           </dl>
@@ -185,16 +219,21 @@ export function DeviceMonitorSummary() {
         </section>
       </div>
 
-      {/* Level 2: live security-service cards, scoped to this firewall */}
-      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
-        <IntrusionPreventionCard t={telemetry} />
-        <ApplicationControlCard t={telemetry} />
-        <GeolocationCard t={telemetry} />
-        <ContentFilteringCard t={telemetry} />
-      </div>
+      {/* Levels 2–3 are firewall telemetry — switches stop at the top row. */}
+      {!isSwitch && (
+        <>
+          {/* Level 2: live security-service cards, scoped to this firewall */}
+          <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+            <IntrusionPreventionCard t={telemetry} />
+            <ApplicationControlCard t={telemetry} />
+            <GeolocationCard t={telemetry} />
+            <ContentFilteringCard t={telemetry} />
+          </div>
 
-      {/* Level 3: most active rules (live per-rule counters via the proxy) */}
-      <MostActiveRules deviceId={deviceId} connected={connected} />
+          {/* Level 3: most active rules (live per-rule counters via the proxy) */}
+          <MostActiveRules deviceId={deviceId} connected={connected} />
+        </>
+      )}
 
       {confirmReboot && (
         <RebootConfirmModal

@@ -5,6 +5,7 @@ import {
   Boxes,
   Building2,
   ChevronRight,
+  EthernetPort,
   Flame,
   Folder,
   FolderOpen,
@@ -451,6 +452,9 @@ export function CloudShell({
               // the row to fill the remaining width beside that margin.
               const deviceLink = (d: Device, indentClass: string) => {
                 const deviceHref = `${deviceBase}${d.device_id}`;
+                // Product decides the row icon: switches get the same
+                // ethernet-port mark as the dashboard's Managed Switches tile.
+                const DeviceIcon = d.product === "quartzsonic" ? EthernetPort : Flame;
                 return (
                   <Link
                     key={d.device_id}
@@ -466,7 +470,7 @@ export function CloudShell({
                         : "text-[var(--qz-fg-3)] border-transparent hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]",
                     ].join(" ")}
                   >
-                    <Flame size={16} className="flex-shrink-0" />
+                    <DeviceIcon size={16} className="flex-shrink-0" />
                     <span className="truncate uppercase">{d.hostname ?? d.device_id}</span>
                   </Link>
                 );

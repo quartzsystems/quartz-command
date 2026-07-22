@@ -232,7 +232,7 @@ export const deviceColumns: Column<Device>[] = [
     key: "version",
     header: "Version",
     value: (r) => r.qf_version,
-    render: (r) => formatVersion(r.qf_version),
+    render: (r) => formatVersion(r.qf_version, r.product),
     mono: true,
     width: 150,
   },
