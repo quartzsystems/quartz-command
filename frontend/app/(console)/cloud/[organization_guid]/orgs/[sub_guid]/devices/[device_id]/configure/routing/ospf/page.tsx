@@ -15,9 +15,11 @@ import {
 } from "@/lib/device/ospf";
 import { fetchInterfaceStats } from "@/lib/device/vyos";
 import { useDashboard } from "@/lib/device/DashboardContext";
+import { useDeviceProduct } from "@/components/device/useDeviceProduct";
 import { OspfGlobalPanel } from "./OspfGlobalPanel";
 import { AreaFormModal } from "./AreaFormModal";
 import { InterfaceFormModal } from "./InterfaceFormModal";
+import { SonicOspfPage } from "./SonicOspfPage";
 
 type Section = "global" | "areas" | "interfaces" | "status";
 
@@ -92,7 +94,10 @@ function interfaceColumns(): Column<OspfInterface>[] {
   ];
 }
 
-export default function OspfPage() {
+/// /routing/ospf is shared between products: QuartzFire firewalls get the
+/// VyOS editor below, QuartzSONiC switches the SONiC editor. The default
+/// export at the bottom picks by the routed device's product.
+function VyosOspfPage() {
   const { setToast } = useDashboard();
   const [cfg, setCfg] = useState<OspfConfig | null>(null);
   const [interfaces, setInterfaces] = useState<string[]>([]);
@@ -268,4 +273,10 @@ export default function OspfPage() {
       )}
     </div>
   );
+}
+
+export default function OspfPage() {
+  const product = useDeviceProduct();
+  if (product === null) return null;
+  return product === "quartzsonic" ? <SonicOspfPage /> : <VyosOspfPage />;
 }

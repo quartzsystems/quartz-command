@@ -17,8 +17,10 @@ import {
 import { fetchInterfaceStats } from "@/lib/device/vyos";
 import { fetchRouteMapNames } from "@/lib/device/routing-policy";
 import { useDashboard } from "@/lib/device/DashboardContext";
+import { useDeviceProduct } from "@/components/device/useDeviceProduct";
 import { BgpGlobalPanel } from "./BgpGlobalPanel";
 import { PeerFormModal } from "./PeerFormModal";
+import { SonicBgpPage } from "./SonicBgpPage";
 
 type Section = "global" | "neighbors" | "peer-groups" | "status";
 
@@ -77,7 +79,10 @@ function peerColumns(showPeerGroup: boolean): Column<BgpPeer>[] {
   return cols;
 }
 
-export default function BgpPage() {
+/// /routing/bgp is shared between products: QuartzFire firewalls get the
+/// VyOS editor below, QuartzSONiC switches the SONiC editor. The default
+/// export at the bottom picks by the routed device's product.
+function VyosBgpPage() {
   const { setToast } = useDashboard();
   const [cfg, setCfg] = useState<BgpConfig | null>(null);
   const [interfaces, setInterfaces] = useState<string[]>([]);
@@ -267,4 +272,10 @@ export default function BgpPage() {
       )}
     </div>
   );
+}
+
+export default function BgpPage() {
+  const product = useDeviceProduct();
+  if (product === null) return null;
+  return product === "quartzsonic" ? <SonicBgpPage /> : <VyosBgpPage />;
 }

@@ -8,8 +8,10 @@ import { RowActions } from "@/components/dashboard/RowActions";
 import { IsisConfig, IsisInterface, deleteIsisInterface, fetchIsis } from "@/lib/device/isis";
 import { fetchInterfaceStats } from "@/lib/device/vyos";
 import { useDashboard } from "@/lib/device/DashboardContext";
+import { useDeviceProduct } from "@/components/device/useDeviceProduct";
 import { IsisGlobalPanel } from "./IsisGlobalPanel";
 import { InterfaceFormModal } from "./InterfaceFormModal";
+import { SonicIsisPage } from "./SonicIsisPage";
 
 type Section = "global" | "interfaces" | "status";
 
@@ -45,7 +47,10 @@ function interfaceColumns(): Column<IsisInterface>[] {
   ];
 }
 
-export default function IsisPage() {
+/// /routing/isis is shared between products: QuartzFire firewalls get the
+/// VyOS editor below, QuartzSONiC switches the SONiC editor. The default
+/// export at the bottom picks by the routed device's product.
+function VyosIsisPage() {
   const { setToast } = useDashboard();
   const [cfg, setCfg] = useState<IsisConfig | null>(null);
   const [interfaces, setInterfaces] = useState<string[]>([]);
@@ -178,4 +183,10 @@ export default function IsisPage() {
       )}
     </div>
   );
+}
+
+export default function IsisPage() {
+  const product = useDeviceProduct();
+  if (product === null) return null;
+  return product === "quartzsonic" ? <SonicIsisPage /> : <VyosIsisPage />;
 }
