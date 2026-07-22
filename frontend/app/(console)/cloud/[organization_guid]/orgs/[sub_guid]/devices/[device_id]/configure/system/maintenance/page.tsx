@@ -37,6 +37,8 @@ import {
 import { fetchLatestImage, type LatestImage } from "@/lib/api";
 import { useDashboard } from "@/lib/device/DashboardContext";
 import { useColumnResize } from "@/components/dashboard/ColumnResize";
+import { useDeviceProduct } from "@/components/device/useDeviceProduct";
+import { SonicMaintenancePage } from "./SonicMaintenancePage";
 
 /** Resizable columns of the system-images table (trailing Actions cell fixed). */
 const IMAGE_COLS = [
@@ -691,7 +693,10 @@ function FactoryResetModal({
   );
 }
 
-export default function MaintenancePage() {
+/// /system/maintenance is shared between products: QuartzFire firewalls get
+/// the VyOS editor below, QuartzSONiC switches the SONiC editor. The default
+/// export at the bottom picks by the routed device's product.
+function VyosMaintenancePage() {
   const { setToast } = useDashboard();
   const resize = useColumnResize("system-images", IMAGE_COLS);
   const [images, setImages] = useState<SystemImage[] | null>(null);
@@ -1090,4 +1095,10 @@ export default function MaintenancePage() {
       )}
     </div>
   );
+}
+
+export default function MaintenancePage() {
+  const product = useDeviceProduct();
+  if (product === null) return null;
+  return product === "quartzsonic" ? <SonicMaintenancePage /> : <VyosMaintenancePage />;
 }

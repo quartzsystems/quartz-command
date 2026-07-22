@@ -191,9 +191,34 @@ const SONIC_GROUPS: NavGroup[] = [
     children: [
       { id: "l3-interfaces", label: "L3 Interfaces", segment: "/routing/l3-interfaces", icon: Cable },
       { id: "vrfs",          label: "VRFs",          segment: "/routing/vrfs",          icon: Boxes },
+      { id: "static",        label: "Static Routes", segment: "/routing/static",        icon: Milestone },
       { id: "bgp",           label: "BGP",           segment: "/routing/bgp",           icon: Share2 },
       { id: "ospf",          label: "OSPF",          segment: "/routing/ospf",          icon: Waypoints },
       { id: "isis",          label: "IS-IS",         segment: "/routing/isis",          icon: Spline },
+      { id: "policy",        label: "Policy",        segment: "/routing/policy",        icon: Filter },
+    ],
+  },
+  {
+    id: "security",
+    label: "Security",
+    icon: Shield,
+    segment: "/security",
+    children: [
+      { id: "acls", label: "ACLs", segment: "/security/acls", icon: ListOrdered },
+      { id: "aaa",  label: "AAA",  segment: "/security/aaa",  icon: KeyRound },
+    ],
+  },
+  {
+    id: "system",
+    label: "System",
+    icon: Settings,
+    segment: "/system",
+    children: [
+      { id: "general",     label: "General",     segment: "/system/general",     icon: SlidersHorizontal },
+      { id: "management",  label: "Management",  segment: "/system/management",  icon: EthernetPort },
+      { id: "users",       label: "Users",       segment: "/system/users",       icon: Users },
+      { id: "snmp",        label: "SNMP",        segment: "/system/snmp",        icon: Cast },
+      { id: "maintenance", label: "Maintenance", segment: "/system/maintenance", icon: Wrench },
     ],
   },
 ];

@@ -9,7 +9,9 @@ import { deleteStaticRoute, fetchStaticRoutes, RouteFamily, StaticRoute } from "
 import { fetchInterfaceDescriptions } from "@/lib/device/interfaces";
 import { fetchInterfaceStats } from "@/lib/device/vyos";
 import { useDashboard } from "@/lib/device/DashboardContext";
+import { useDeviceProduct } from "@/components/device/useDeviceProduct";
 import { StaticRouteFormModal } from "./StaticRouteFormModal";
+import { SonicStaticRoutesPage } from "./SonicStaticRoutesPage";
 
 const KIND_LABEL: Record<StaticRoute["kind"], string> = {
   gateway: "Gateway",
@@ -58,7 +60,10 @@ const columns: Column<StaticRoute>[] = [
   },
 ];
 
-export default function StaticRoutesPage() {
+/// /routing/static is shared between products: QuartzFire firewalls get the
+/// VyOS editor below, QuartzSONiC switches the SONiC editor. The default
+/// export at the bottom picks by the routed device's product.
+function VyosStaticRoutesPage() {
   const { setToast } = useDashboard();
   const [routes, setRoutes] = useState<StaticRoute[]>([]);
   const [interfaces, setInterfaces] = useState<string[]>([]);
@@ -204,4 +209,10 @@ export default function StaticRoutesPage() {
       )}
     </div>
   );
+}
+
+export default function StaticRoutesPage() {
+  const product = useDeviceProduct();
+  if (product === null) return null;
+  return product === "quartzsonic" ? <SonicStaticRoutesPage /> : <VyosStaticRoutesPage />;
 }

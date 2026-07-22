@@ -7,7 +7,9 @@ import { Column, DataTable } from "@/components/dashboard/DataTable";
 import { RowActions } from "@/components/dashboard/RowActions";
 import { deleteUser, fetchSystemConfig, SystemUser } from "@/lib/device/system";
 import { useDashboard } from "@/lib/device/DashboardContext";
+import { useDeviceProduct } from "@/components/device/useDeviceProduct";
 import { UserFormModal } from "./UserFormModal";
+import { SonicUsersPage } from "./SonicUsersPage";
 
 const columns: Column<SystemUser>[] = [
   { key: "name", header: "Username", value: (r) => r.name, mono: true, sortable: true, width: 160 },
@@ -47,7 +49,10 @@ const columns: Column<SystemUser>[] = [
   },
 ];
 
-export default function UsersPage() {
+/// /system/users is shared between products: QuartzFire firewalls get the
+/// VyOS editor below, QuartzSONiC switches the SONiC editor. The default
+/// export at the bottom picks by the routed device's product.
+function VyosUsersPage() {
   const { setToast } = useDashboard();
   const [users, setUsers] = useState<SystemUser[] | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -199,4 +204,10 @@ export default function UsersPage() {
       )}
     </div>
   );
+}
+
+export default function UsersPage() {
+  const product = useDeviceProduct();
+  if (product === null) return null;
+  return product === "quartzsonic" ? <SonicUsersPage /> : <VyosUsersPage />;
 }

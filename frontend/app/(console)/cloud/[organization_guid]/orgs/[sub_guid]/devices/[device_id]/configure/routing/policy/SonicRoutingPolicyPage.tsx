@@ -5,23 +5,22 @@ import { AlertTriangle, Plus, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Column, DataTable } from "@/components/dashboard/DataTable";
 import { RowActions } from "@/components/dashboard/RowActions";
+import { Toast } from "@/components/dashboard/Toast";
+import { FeatureReadOnlyNotice, FeatureUnavailable } from "@/components/device/FeatureUnavailable";
 import {
+  RoutingPolicyDoc,
+  SonicPrefixList,
+  SonicRouteMap,
   deletePrefixList,
   deleteRouteMap,
-  fetchPrefixLists,
-  fetchRouteMaps,
-  PrefixList,
-  RouteMap,
-} from "@/lib/device/routing-policy";
-import { useDashboard } from "@/lib/device/DashboardContext";
-import { useDeviceProduct } from "@/components/device/useDeviceProduct";
-import { PrefixListFormModal } from "./PrefixListFormModal";
-import { RouteMapFormModal } from "./RouteMapFormModal";
-import { SonicRoutingPolicyPage } from "./SonicRoutingPolicyPage";
+  fetchRoutingPolicy,
+} from "@/lib/device/sonic-routing-policy";
+import { SonicPrefixListFormModal } from "./SonicPrefixListFormModal";
+import { SonicRouteMapFormModal } from "./SonicRouteMapFormModal";
 
 type Tab = "prefix-lists" | "route-maps";
 
-const prefixColumns: Column<PrefixList>[] = [
+const prefixColumns: Column<SonicPrefixList>[] = [
   { key: "name", header: "Name", value: (r) => r.name, mono: true, sortable: true },
   {
     key: "family",
@@ -36,43 +35,41 @@ const prefixColumns: Column<PrefixList>[] = [
     key: "summary",
     header: "Summary",
     value: (r) => r.rules.map((x) => x.prefix).join(", "),
-    render: (r) => (r.rules.length ? r.rules.map((x) => x.prefix).filter(Boolean).slice(0, 3).join(", ") + (r.rules.length > 3 ? " …" : "") : "—"),
+    render: (r) =>
+      r.rules.length
+        ? r.rules.map((x) => x.prefix).slice(0, 3).join(", ") + (r.rules.length > 3 ? " …" : "")
+        : "—",
     mono: true,
   },
 ];
 
-const routeMapColumns: Column<RouteMap>[] = [
+const routeMapColumns: Column<SonicRouteMap>[] = [
   { key: "name", header: "Name", value: (r) => r.name, mono: true, sortable: true },
-  { key: "rules", header: "Rules", value: (r) => r.rules.length, mono: true, sortable: true, width: 90 },
+  { key: "entries", header: "Entries", value: (r) => r.entries.length, mono: true, sortable: true, width: 90 },
   {
     key: "summary",
     header: "Summary",
-    value: (r) => r.rules.map((x) => `${x.seq} ${x.action}`).join(", "),
-    render: (r) => (r.rules.length ? r.rules.map((x) => `${x.seq}:${x.action}`).slice(0, 4).join("  ") : "—"),
+    value: (r) => r.entries.map((x) => `${x.seq} ${x.action}`).join(", "),
+    render: (r) =>
+      r.entries.length ? r.entries.map((x) => `${x.seq}:${x.action}`).slice(0, 4).join("  ") : "—",
     mono: true,
   },
 ];
 
-/// /routing/policy is shared between products: QuartzFire firewalls get the
-/// VyOS editor below, QuartzSONiC switches the SONiC editor. The default
-/// export at the bottom picks by the routed device's product.
-function VyosRoutingPolicyPage() {
-  const { setToast } = useDashboard();
-  const [prefixLists, setPrefixLists] = useState<PrefixList[]>([]);
-  const [routeMaps, setRouteMaps] = useState<RouteMap[]>([]);
+export function SonicRoutingPolicyPage() {
+  const [doc, setDoc] = useState<RoutingPolicyDoc | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [tab, setTab] = useState<Tab>("prefix-lists");
+  const [toast, setToast] = useState("");
 
-  const [prefixModal, setPrefixModal] = useState<{ list?: PrefixList } | null>(null);
-  const [routeMapModal, setRouteMapModal] = useState<{ map?: RouteMap } | null>(null);
+  const [prefixModal, setPrefixModal] = useState<{ list?: SonicPrefixList } | null>(null);
+  const [routeMapModal, setRouteMapModal] = useState<{ map?: SonicRouteMap } | null>(null);
 
   const load = useCallback(async (mode: "load" | "refresh" = "load") => {
     if (mode === "load") setStatus("loading");
     try {
-      const [pls, rms] = await Promise.all([fetchPrefixLists(), fetchRouteMaps()]);
-      setPrefixLists(pls);
-      setRouteMaps(rms);
+      setDoc(await fetchRoutingPolicy());
       setStatus("ready");
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Failed to load routing policy.");
@@ -91,16 +88,16 @@ function VyosRoutingPolicyPage() {
     load("refresh");
   };
 
-  const removePrefix = async (row: PrefixList) => {
+  const removePrefix = async (row: SonicPrefixList) => {
     try {
-      await deletePrefixList(row.family, row.name);
+      await deletePrefixList(row.name);
       setToast(`Deleted prefix-list ${row.name}.`);
       await load("refresh");
     } catch (e) {
       setToast(e instanceof Error ? e.message : `Failed to delete ${row.name}.`);
     }
   };
-  const removeRouteMap = async (row: RouteMap) => {
+  const removeRouteMap = async (row: SonicRouteMap) => {
     try {
       await deleteRouteMap(row.name);
       setToast(`Deleted route-map ${row.name}.`);
@@ -111,8 +108,8 @@ function VyosRoutingPolicyPage() {
   };
 
   const tabs: [Tab, string, number][] = [
-    ["prefix-lists", "Prefix Lists", prefixLists.length],
-    ["route-maps", "Route Maps", routeMaps.length],
+    ["prefix-lists", "Prefix Lists", doc?.prefix_lists.length ?? 0],
+    ["route-maps", "Route Maps", doc?.route_maps.length ?? 0],
   ];
 
   return (
@@ -122,12 +119,14 @@ function VyosRoutingPolicyPage() {
           Routing Policy
         </h1>
         <p className="text-[13px] text-[var(--qz-fg-4)] mt-1">
-          Prefix-lists and route-maps for filtering and shaping routes — referenced by BGP
+          Prefix-lists and route-maps for filtering and shaping routes — referenced by BGP and OSPF
         </p>
       </div>
 
       <div className="flex-1 overflow-auto px-[36px] pb-[28px]">
-        {status === "loading" && <div className="text-[13px] text-[var(--qz-fg-4)]">Loading routing policy…</div>}
+        {status === "loading" && (
+          <div className="text-[13px] text-[var(--qz-fg-4)]">Loading routing policy…</div>
+        )}
         {status === "error" && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 text-[13px] text-[var(--qz-danger)]">
@@ -139,8 +138,13 @@ function VyosRoutingPolicyPage() {
             </div>
           </div>
         )}
-        {status === "ready" && (
+        {status === "ready" && doc && !doc.capability.supported && (
+          <FeatureUnavailable feature="Routing policy" capability={doc.capability} />
+        )}
+        {status === "ready" && doc && doc.capability.supported && (
           <div className="flex flex-col gap-5">
+            <FeatureReadOnlyNotice capability={doc.capability} />
+
             <div className="flex items-center gap-1 border-b border-[var(--qz-border)]">
               {tabs.map(([id, label, count]) => {
                 const active = tab === id;
@@ -151,7 +155,9 @@ function VyosRoutingPolicyPage() {
                     onClick={() => setTab(id)}
                     className={[
                       "px-3 py-2 text-[13px] font-medium border-b-2 -mb-px transition-colors cursor-pointer",
-                      active ? "text-[var(--qz-accent)] border-[var(--qz-accent)]" : "text-[var(--qz-fg-3)] border-transparent hover:text-[var(--qz-fg-1)]",
+                      active
+                        ? "text-[var(--qz-accent)] border-[var(--qz-accent)]"
+                        : "text-[var(--qz-fg-3)] border-transparent hover:text-[var(--qz-fg-1)]",
                     ].join(" ")}
                   >
                     {label}
@@ -163,42 +169,54 @@ function VyosRoutingPolicyPage() {
 
             {tab === "prefix-lists" && (
               <DataTable
-                rows={prefixLists}
+                rows={doc.prefix_lists}
                 columns={prefixColumns}
                 rowId={(r) => `${r.family}|${r.name}`}
-                storageKey="routing-policy-prefix-lists"
+                storageKey="routing-sonic-policy-prefix-lists"
                 searchPlaceholder="Search prefix-lists…"
                 emptyMessage="No prefix-lists configured."
                 onRefresh={() => load("refresh")}
                 onRowDoubleClick={(r) => setPrefixModal({ list: r })}
                 toolbar={
-                  <Button kind="primary" size="sm" icon={Plus} onClick={() => setPrefixModal({})}>
-                    Create prefix-list
-                  </Button>
+                  !doc.capability.read_only ? (
+                    <Button kind="primary" size="sm" icon={Plus} onClick={() => setPrefixModal({})}>
+                      Create prefix-list
+                    </Button>
+                  ) : undefined
                 }
                 actions={(row) => (
-                  <RowActions label={`prefix-list ${row.name}`} onEdit={() => setPrefixModal({ list: row })} onDelete={() => removePrefix(row)} />
+                  <RowActions
+                    label={`prefix-list ${row.name}`}
+                    onEdit={() => setPrefixModal({ list: row })}
+                    onDelete={() => removePrefix(row)}
+                  />
                 )}
               />
             )}
 
             {tab === "route-maps" && (
               <DataTable
-                rows={routeMaps}
+                rows={doc.route_maps}
                 columns={routeMapColumns}
                 rowId={(r) => r.name}
-                storageKey="routing-policy-route-maps"
+                storageKey="routing-sonic-policy-route-maps"
                 searchPlaceholder="Search route-maps…"
                 emptyMessage="No route-maps configured."
                 onRefresh={() => load("refresh")}
                 onRowDoubleClick={(r) => setRouteMapModal({ map: r })}
                 toolbar={
-                  <Button kind="primary" size="sm" icon={Plus} onClick={() => setRouteMapModal({})}>
-                    Create route-map
-                  </Button>
+                  !doc.capability.read_only ? (
+                    <Button kind="primary" size="sm" icon={Plus} onClick={() => setRouteMapModal({})}>
+                      Create route-map
+                    </Button>
+                  ) : undefined
                 }
                 actions={(row) => (
-                  <RowActions label={`route-map ${row.name}`} onEdit={() => setRouteMapModal({ map: row })} onDelete={() => removeRouteMap(row)} />
+                  <RowActions
+                    label={`route-map ${row.name}`}
+                    onEdit={() => setRouteMapModal({ map: row })}
+                    onDelete={() => removeRouteMap(row)}
+                  />
                 )}
               />
             )}
@@ -206,28 +224,24 @@ function VyosRoutingPolicyPage() {
         )}
       </div>
 
-      {prefixModal && (
-        <PrefixListFormModal
+      {prefixModal && doc && (
+        <SonicPrefixListFormModal
           initial={prefixModal.list}
-          existing={prefixLists}
+          existing={doc.prefix_lists}
           onClose={() => setPrefixModal(null)}
           onSaved={saved}
         />
       )}
-      {routeMapModal && (
-        <RouteMapFormModal
+      {routeMapModal && doc && (
+        <SonicRouteMapFormModal
           initial={routeMapModal.map}
-          existingNames={routeMaps.map((r) => r.name)}
+          existingNames={doc.route_maps.map((r) => r.name)}
+          prefixLists={doc.prefix_lists}
           onClose={() => setRouteMapModal(null)}
           onSaved={saved}
         />
       )}
+      {toast && <Toast message={toast} onDismiss={() => setToast("")} />}
     </div>
   );
-}
-
-export default function RoutingPolicyPage() {
-  const product = useDeviceProduct();
-  if (product === null) return null;
-  return product === "quartzsonic" ? <SonicRoutingPolicyPage /> : <VyosRoutingPolicyPage />;
 }

@@ -5,7 +5,9 @@ import { AlertTriangle, Pencil, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { fetchSystemConfig, GeneralSettings } from "@/lib/device/system";
 import { useDashboard } from "@/lib/device/DashboardContext";
+import { useDeviceProduct } from "@/components/device/useDeviceProduct";
 import { GeneralFormModal } from "./GeneralFormModal";
+import { SonicGeneralPage } from "./SonicGeneralPage";
 
 /// One label/value line of the settings card.
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -33,7 +35,10 @@ function MonoValue({ value, fallback }: { value: string | null; fallback: string
   return <span style={{ fontFamily: "var(--qz-font-mono)" }}>{value}</span>;
 }
 
-export default function GeneralSettingsPage() {
+/// /system/general is shared between products: QuartzFire firewalls get the
+/// VyOS card below, QuartzSONiC switches the SONiC editor. The default
+/// export at the bottom picks by the routed device's product.
+function VyosGeneralSettingsPage() {
   const { setToast } = useDashboard();
   const [data, setData] = useState<GeneralSettings | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -114,4 +119,10 @@ export default function GeneralSettingsPage() {
       )}
     </div>
   );
+}
+
+export default function GeneralSettingsPage() {
+  const product = useDeviceProduct();
+  if (product === null) return null;
+  return product === "quartzsonic" ? <SonicGeneralPage /> : <VyosGeneralSettingsPage />;
 }
