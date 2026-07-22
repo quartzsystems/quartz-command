@@ -179,6 +179,7 @@ export default function VxlanPage() {
             searchPlaceholder="Search VXLAN…"
             emptyMessage="No VXLAN interfaces configured."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => setModal({ vxlan: r })}
             toolbar={
               <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                 Create VXLAN

@@ -152,6 +152,7 @@ export default function IsisPage() {
                 searchPlaceholder="Search interfaces…"
                 emptyMessage="No IS-IS interfaces configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setIfaceModal({ iface: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setIfaceModal({})}>
                     Add interface

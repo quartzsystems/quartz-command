@@ -206,6 +206,7 @@ export default function AdminOrganizationPage() {
                 searchPlaceholder="Search members…"
                 emptyMessage="No members yet. Add the first one to get started."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setModal({ member: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                     Add member

@@ -182,6 +182,7 @@ export default function EthernetPage() {
             searchPlaceholder="Search interfaces…"
             emptyMessage="No ethernet interfaces configured."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => setModal({ eth: r })}
             toolbar={
               <span title={freeNames.length === 0 ? "No free physical interfaces available" : undefined}>
                 <Button

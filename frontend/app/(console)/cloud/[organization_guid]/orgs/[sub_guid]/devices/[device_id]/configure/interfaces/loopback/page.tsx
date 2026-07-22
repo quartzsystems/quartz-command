@@ -108,6 +108,7 @@ export default function LoopbackPage() {
             searchPlaceholder="Search loopback interfaces…"
             emptyMessage="Loopback `lo` is not in the config yet — configure it to add addresses."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => setModal({ lo: r })}
             toolbar={
               loMissing ? (
                 <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>

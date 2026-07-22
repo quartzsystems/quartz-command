@@ -204,6 +204,7 @@ export default function FirewallAliasesPage() {
             searchPlaceholder="Search aliases…"
             emptyMessage="No aliases defined."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => { if (r.kind === "user") setModal({ alias: r.alias }); }}
             toolbar={
               <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                 Create alias

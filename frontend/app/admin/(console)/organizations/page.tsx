@@ -105,6 +105,7 @@ export default function AdminOrganizationsPage() {
             searchPlaceholder="Search organizations…"
             emptyMessage="No organizations yet. Create the first one to get started."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => router.push(`/admin/organizations/${r.id}`)}
             toolbar={
               <Button kind="primary" size="sm" icon={Plus} onClick={() => setCreating(true)}>
                 Create organization

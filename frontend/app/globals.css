@@ -250,6 +250,38 @@ body {
   background: var(--qz-fg-on-accent);
 }
 
+/* --- Toggle switch (components/ui/Switch) --- */
+.switch {
+  width: 34px;
+  height: 19px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--qz-ink-3);
+  border: 1px solid var(--qz-border-strong);
+  cursor: pointer;
+  position: relative;
+  transition: background 140ms, border-color 140ms;
+}
+.switch:hover { border-color: var(--qz-fg-4); }
+.switch.on {
+  background: var(--qz-accent);
+  border-color: var(--qz-accent);
+}
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--qz-fg-2);
+  transition: left 140ms ease, background 140ms;
+}
+.switch.on .switch-knob {
+  left: 17px;
+  background: var(--qz-fg-on-accent);
+}
+
 /* --- KPI --- */
 .kpi-card {
   background: var(--qz-surface);

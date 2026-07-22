@@ -147,6 +147,7 @@ export default function FirewallPoliciesPage() {
             searchPlaceholder="Search policies…"
             emptyMessage="No policies defined."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => setModal({ policy: r })}
             toolbar={
               <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                 Create policy

@@ -205,6 +205,7 @@ export default function BgpPage() {
                 searchPlaceholder="Search neighbors…"
                 emptyMessage="No BGP neighbors configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setNeighborModal({ peer: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setNeighborModal({})}>
                     Add neighbor
@@ -225,6 +226,7 @@ export default function BgpPage() {
                 searchPlaceholder="Search peer-groups…"
                 emptyMessage="No BGP peer-groups configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setGroupModal({ peer: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setGroupModal({})}>
                     Add peer-group

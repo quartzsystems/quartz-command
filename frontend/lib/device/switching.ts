@@ -45,6 +45,9 @@ export interface SwitchPort {
   oper_status: PortStatus;
   /** Operational speed (STATE_DB), falling back to configured speed. */
   speed_mbps: number | null;
+  /** Speeds (Mbps) the port hardware can run, from STATE_DB PORT_TABLE
+   *  `supported_speeds`; null when the platform doesn't report them. */
+  supported_speeds: number[] | null;
   /** Forward error correction: "rs", "fc", or "none". */
   fec: string | null;
   mtu: number | null;
@@ -197,6 +200,16 @@ export async function deleteSwitchVlan(vlanId: number): Promise<void> {
 }
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
+
+/** "Ethernet0" → "Eth0", "PortChannel0001" → "Po1" — compact interface names
+ *  for dense member lists. Anything unrecognized passes through untouched. */
+export function shortInterfaceName(name: string): string {
+  const eth = name.match(/^Ethernet(\d+)$/);
+  if (eth) return `Eth${eth[1]}`;
+  const po = name.match(/^PortChannel(\d+)$/);
+  if (po) return `Po${Number(po[1])}`;
+  return name;
+}
 
 /** "25G" / "100G" / "400M" — switch-style short speed labels. */
 export function formatPortSpeed(mbps: number | null): string | null {

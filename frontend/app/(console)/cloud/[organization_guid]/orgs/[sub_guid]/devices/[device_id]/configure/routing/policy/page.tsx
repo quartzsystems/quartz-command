@@ -165,6 +165,7 @@ export default function RoutingPolicyPage() {
                 searchPlaceholder="Search prefix-lists…"
                 emptyMessage="No prefix-lists configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setPrefixModal({ list: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setPrefixModal({})}>
                     Create prefix-list
@@ -185,6 +186,7 @@ export default function RoutingPolicyPage() {
                 searchPlaceholder="Search route-maps…"
                 emptyMessage="No route-maps configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setRouteMapModal({ map: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setRouteMapModal({})}>
                     Create route-map

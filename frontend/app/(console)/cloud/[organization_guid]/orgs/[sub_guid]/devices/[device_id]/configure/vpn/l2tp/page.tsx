@@ -186,6 +186,7 @@ export default function L2tpPage() {
                 searchPlaceholder="Search users…"
                 emptyMessage="No L2TP users configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setUserModal({ user: r })}
                 toolbar={<Button kind="primary" size="sm" icon={Plus} onClick={() => setUserModal({})}>Add user</Button>}
                 actions={(row) => <RowActions label={`user ${row.username}`} onEdit={() => setUserModal({ user: row })} onDelete={() => removeUser(row)} />}
               />
@@ -200,6 +201,7 @@ export default function L2tpPage() {
                 searchPlaceholder="Search pools…"
                 emptyMessage="No IP pools configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setPoolModal({ pool: r })}
                 toolbar={<Button kind="primary" size="sm" icon={Plus} onClick={() => setPoolModal({})}>Add pool</Button>}
                 actions={(row) => <RowActions label={`pool ${row.name}`} onEdit={() => setPoolModal({ pool: row })} onDelete={() => removePool(row)} />}
               />
@@ -214,6 +216,7 @@ export default function L2tpPage() {
                 searchPlaceholder="Search servers…"
                 emptyMessage="No RADIUS servers configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setRadiusModal({ server: r })}
                 toolbar={<Button kind="primary" size="sm" icon={Plus} onClick={() => setRadiusModal({})}>Add server</Button>}
                 actions={(row) => <RowActions label={`RADIUS server ${row.address}`} onEdit={() => setRadiusModal({ server: row })} onDelete={() => removeRadius(row)} />}
               />

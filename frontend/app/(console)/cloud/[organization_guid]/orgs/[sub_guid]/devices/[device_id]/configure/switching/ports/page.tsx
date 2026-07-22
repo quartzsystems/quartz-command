@@ -224,6 +224,7 @@ export default function PortsPage() {
             searchPlaceholder="Search ports…"
             emptyMessage="No switch ports found."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => setEditing(r)}
             actionsWidth={60}
             actions={(r) => (
               <button

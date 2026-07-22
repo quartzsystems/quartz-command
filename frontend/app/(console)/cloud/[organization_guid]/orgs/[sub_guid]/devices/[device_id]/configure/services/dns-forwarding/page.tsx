@@ -139,6 +139,7 @@ export default function DnsForwardingPage() {
                 searchPlaceholder="Search domains…"
                 emptyMessage="No conditional forwarding domains configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setDomainModal({ domain: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setDomainModal({})}>
                     Create domain

@@ -258,6 +258,7 @@ export default function Nat44Page() {
                 searchPlaceholder="Search mappings…"
                 emptyMessage="No 1-to-1 NAT mappings configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setStaticModal({ mapping: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setStaticModal({})}>
                     Create mapping
@@ -280,6 +281,7 @@ export default function Nat44Page() {
                 searchPlaceholder="Search rules…"
                 emptyMessage={`No ${tab} NAT rules configured.`}
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setModal({ section: tab as NatSection, rule: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({ section: tab })}>
                     Create rule

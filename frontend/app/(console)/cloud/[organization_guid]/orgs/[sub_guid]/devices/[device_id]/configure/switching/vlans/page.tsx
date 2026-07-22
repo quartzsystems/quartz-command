@@ -12,6 +12,7 @@ import {
   fetchPortChannels,
   fetchSwitchPorts,
   fetchVlans,
+  shortInterfaceName,
 } from "@/lib/device/switching";
 import { VlanFormModal } from "./VlanFormModal";
 
@@ -25,7 +26,9 @@ function MembersCell({ vlan, tagging }: { vlan: SwitchVlan; tagging: "tagged" | 
   return (
     <span className="inline-flex flex-wrap gap-x-2">
       {names.map((n) => (
-        <span key={n}>{n}</span>
+        <span key={n} title={n}>
+          {shortInterfaceName(n)}
+        </span>
       ))}
     </span>
   );
@@ -152,6 +155,7 @@ export default function VlansPage() {
             searchPlaceholder="Search VLANs…"
             emptyMessage="No VLANs configured."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => setModal({ mode: "edit", vlan: r })}
             toolbar={
               <Button size="sm" icon={Plus} onClick={() => setModal({ mode: "create" })}>
                 Add VLAN

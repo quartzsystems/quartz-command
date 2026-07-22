@@ -227,6 +227,7 @@ export default function FirewallZonesPage() {
               searchPlaceholder="Search zones…"
               emptyMessage="No zones defined."
               onRefresh={() => load("refresh")}
+              onRowDoubleClick={(z) => setModal({ zone: z })}
               toolbar={
                 <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                   Create zone

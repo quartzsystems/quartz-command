@@ -204,6 +204,7 @@ export default function IpsecPage() {
                 searchPlaceholder="Search peers…"
                 emptyMessage="No IPsec peers configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setPeerModal({ peer: r })}
                 toolbar={<Button kind="primary" size="sm" icon={Plus} onClick={() => setPeerModal({})}>Add peer</Button>}
                 actions={(row) => <RowActions label={`peer ${row.name}`} onEdit={() => setPeerModal({ peer: row })} onDelete={() => removePeer(row)} />}
               />
@@ -218,6 +219,7 @@ export default function IpsecPage() {
                 searchPlaceholder="Search IKE groups…"
                 emptyMessage="No IKE groups configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setIkeModal({ group: r })}
                 toolbar={<Button kind="primary" size="sm" icon={Plus} onClick={() => setIkeModal({})}>Add IKE group</Button>}
                 actions={(row) => <RowActions label={`IKE group ${row.name}`} onEdit={() => setIkeModal({ group: row })} onDelete={() => removeIke(row)} />}
               />
@@ -232,6 +234,7 @@ export default function IpsecPage() {
                 searchPlaceholder="Search ESP groups…"
                 emptyMessage="No ESP groups configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setEspModal({ group: r })}
                 toolbar={<Button kind="primary" size="sm" icon={Plus} onClick={() => setEspModal({})}>Add ESP group</Button>}
                 actions={(row) => <RowActions label={`ESP group ${row.name}`} onEdit={() => setEspModal({ group: row })} onDelete={() => removeEsp(row)} />}
               />

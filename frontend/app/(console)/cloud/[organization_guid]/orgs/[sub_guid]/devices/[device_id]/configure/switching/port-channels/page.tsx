@@ -211,6 +211,7 @@ export default function PortChannelsPage() {
             searchPlaceholder="Search port channels…"
             emptyMessage="No port channels configured."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => setModal({ mode: "edit", pc: r })}
             toolbar={
               <Button size="sm" icon={Plus} onClick={() => setModal({ mode: "create" })}>
                 Add Port Channel

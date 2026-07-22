@@ -147,6 +147,7 @@ export default function OpenvpnPage() {
                 searchPlaceholder="Search interfaces…"
                 emptyMessage="No OpenVPN interfaces configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setModal({ iface: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                     Add interface

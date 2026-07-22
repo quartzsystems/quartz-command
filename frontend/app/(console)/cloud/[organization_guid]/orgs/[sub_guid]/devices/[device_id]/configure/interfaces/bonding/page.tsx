@@ -219,6 +219,7 @@ export default function BondingPage() {
             searchPlaceholder="Search bonds…"
             emptyMessage="No bond interfaces configured."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => openModal(r)}
             toolbar={
               <Button kind="primary" size="sm" icon={Plus} onClick={() => openModal()}>
                 Create bond

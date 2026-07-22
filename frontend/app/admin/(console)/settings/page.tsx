@@ -132,6 +132,7 @@ export default function AdminSettingsPage() {
                 searchPlaceholder="Search admins…"
                 emptyMessage="No admin accounts."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setModal({ admin: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                     Create admin

@@ -46,6 +46,7 @@ export function DataTable<T>({
   actionsWidth = 90,
   onRefresh,
   storageKey,
+  onRowDoubleClick,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -65,6 +66,9 @@ export function DataTable<T>({
   onRefresh?: () => void | Promise<void>;
   /** Namespace for persisting column layout (order/width/visibility). Falls back to the column set. */
   storageKey?: string;
+  /** Double-clicking anywhere in a row (except the checkbox/actions cells)
+   *  fires this — pages use it to open the row's editor without the pencil. */
+  onRowDoubleClick?: (row: T) => void;
 }) {
   const [query, setQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -156,6 +160,34 @@ export function DataTable<T>({
     setWidths((prev) => ({ ...measured, ...prev }));
     setSeeded(true);
   }, [seeded, byKey]);
+
+  // Shrink columns proportionally (down to their minimums) whenever their
+  // total exceeds the container — stored widths saved in a wider window would
+  // otherwise push the actions column past the visible edge.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || !seeded) return;
+    const fit = () => {
+      const avail = wrap.clientWidth - 40 - (actions ? actionsWidth : 0) - 2;
+      if (avail <= 0) return;
+      setWidths((prev) => {
+        const cur = visibleCols.map((c) => prev[c.key] ?? c.width ?? 120);
+        const total = cur.reduce((a, b) => a + b, 0);
+        if (total <= avail) return prev;
+        const scale = avail / total;
+        const next = { ...prev };
+        visibleCols.forEach((c, i) => {
+          next[c.key] = Math.max(c.minWidth ?? MIN_COL, Math.floor(cur[i] * scale));
+        });
+        return next;
+      });
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [seeded, visibleCols, actions, actionsWidth]);
 
   const resetLayout = () => {
     setOrder(defaultOrder);
@@ -517,6 +549,7 @@ export function DataTable<T>({
 
       {/* Table */}
       <div
+        ref={wrapRef}
         className="rounded-md overflow-x-auto"
         style={{
           border: "1px solid var(--qz-border)",
@@ -631,8 +664,13 @@ export function DataTable<T>({
                     className={isSel ? "selected" : ""}
                     onMouseDown={(e) => onRowMouseDown(e, index)}
                     onMouseEnter={() => onRowMouseEnter(index)}
+                    onDoubleClick={onRowDoubleClick ? () => onRowDoubleClick(row) : undefined}
                   >
-                    <td onMouseDown={(e) => e.stopPropagation()} style={{ cursor: "default" }}>
+                    <td
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      style={{ cursor: "default" }}
+                    >
                       <input
                         type="checkbox"
                         checked={isSel}
@@ -653,6 +691,7 @@ export function DataTable<T>({
                     {actions && (
                       <td
                         onMouseDown={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
                         style={{ cursor: "default" }}
                         className="text-right"
                       >

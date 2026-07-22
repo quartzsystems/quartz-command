@@ -212,6 +212,7 @@ export default function OspfPage() {
                 searchPlaceholder="Search areas…"
                 emptyMessage="No OSPF areas configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setAreaModal({ area: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setAreaModal({})}>
                     Add area
@@ -232,6 +233,7 @@ export default function OspfPage() {
                 searchPlaceholder="Search interfaces…"
                 emptyMessage="No OSPF interfaces configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setIfaceModal({ iface: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setIfaceModal({})}>
                     Add interface

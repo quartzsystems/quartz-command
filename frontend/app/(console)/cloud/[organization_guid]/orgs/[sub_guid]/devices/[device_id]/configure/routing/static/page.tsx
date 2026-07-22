@@ -169,6 +169,7 @@ export default function StaticRoutesPage() {
               searchPlaceholder="Search routes…"
               emptyMessage={`No ${tab === "ipv4" ? "IPv4" : "IPv6"} static routes configured.`}
               onRefresh={() => load("refresh")}
+              onRowDoubleClick={(r) => setModal({ route: r })}
               toolbar={
                 <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                   Create route

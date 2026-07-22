@@ -91,6 +91,7 @@ function AfTable({ af, onInspect }: { af: AfSummary; onInspect: (neighbor: strin
         storageKey={`routing-bgp-status-${af.af}`}
         searchPlaceholder="Search neighbors…"
         emptyMessage="No neighbors in this address family."
+        onRowDoubleClick={(r) => onInspect(r.neighbor)}
         actions={(row) => (
           <button
             type="button"

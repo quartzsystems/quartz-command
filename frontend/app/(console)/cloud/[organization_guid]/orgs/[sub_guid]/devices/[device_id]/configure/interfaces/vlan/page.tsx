@@ -198,6 +198,7 @@ export default function VlanPage() {
             searchPlaceholder="Search VLANs…"
             emptyMessage="No VLAN interfaces configured."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => setModal({ vlan: r })}
             toolbar={
               <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                 Create VLAN

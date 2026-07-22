@@ -138,6 +138,7 @@ export default function WireguardPage() {
                 searchPlaceholder="Search interfaces…"
                 emptyMessage="No WireGuard interfaces configured."
                 onRefresh={() => load("refresh")}
+                onRowDoubleClick={(r) => setModal({ iface: r })}
                 toolbar={
                   <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                     Add interface

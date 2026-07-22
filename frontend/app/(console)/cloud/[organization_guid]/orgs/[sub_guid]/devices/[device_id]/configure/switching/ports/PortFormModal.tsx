@@ -1,14 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { ModalShell, ModalHeader } from "@/components/ui/Modal";
 import { Switch } from "@/components/ui/Switch";
 import {
   SwitchPort,
   SwitchVlan,
   VlanMode,
+  formatPortSpeed,
   updateSwitchPort,
 } from "@/lib/device/switching";
+
+/// Shown when the agent doesn't report the port's supported speeds (older
+/// agent or a platform whose STATE_DB lacks `supported_speeds`).
+const FALLBACK_SPEEDS_MBPS = [100, 1000, 2500, 5000, 10000, 25000, 40000, 50000, 100000, 200000, 400000];
+
+function vlanLabel(v: SwitchVlan): string {
+  return v.description ? `${v.vlan_id} — ${v.description}` : String(v.vlan_id);
+}
 
 const inputCls = "w-full rounded-md px-3 py-[9px] text-[13px] text-[var(--qz-fg-1)] outline-none";
 const inputSt = { background: "var(--qz-input-bg)", border: "1px solid var(--qz-border)" } as const;
@@ -19,6 +29,91 @@ function focusBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) 
 }
 function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) {
   e.currentTarget.style.borderColor = "var(--qz-border)";
+}
+
+/// Checkbox-dropdown over the switch's configured VLANs, for picking a trunk's
+/// tagged set. VLANs on the port but no longer in CONFIG_DB stay listed (and
+/// checked) so saving doesn't silently drop them.
+function VlanMultiSelect({
+  vlans,
+  selected,
+  onChange,
+}: {
+  vlans: SwitchVlan[];
+  selected: number[];
+  onChange: (ids: number[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const known = new Set(vlans.map((v) => v.vlan_id));
+  const orphans = selected.filter((id) => !known.has(id)).sort((a, b) => a - b);
+  const options = [
+    ...vlans.map((v) => ({ id: v.vlan_id, label: vlanLabel(v) })),
+    ...orphans.map((id) => ({ id, label: `${id} — (no longer configured)` })),
+  ].sort((a, b) => a.id - b.id);
+
+  const toggle = (id: number) =>
+    onChange(
+      selected.includes(id)
+        ? selected.filter((s) => s !== id)
+        : [...selected, id].sort((a, b) => a - b),
+    );
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`${inputCls} cursor-pointer flex items-center justify-between gap-2 text-left`}
+        style={monoSt}
+      >
+        <span className={selected.length ? undefined : "text-[var(--qz-fg-4)]"}>
+          {selected.length ? selected.join(", ") : "Select VLANs…"}
+        </span>
+        <ChevronDown size={14} className="flex-shrink-0 text-[var(--qz-fg-4)]" />
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 right-0 mt-1 z-20 rounded-md py-1 max-h-[220px] overflow-y-auto"
+          style={{
+            background: "var(--qz-surface)",
+            border: "1px solid var(--qz-border)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+          }}
+        >
+          {options.length === 0 && (
+            <div className="px-3 py-[6px] text-[12.5px] text-[var(--qz-fg-4)]">
+              No VLANs configured — create them under Switching → VLANs.
+            </div>
+          )}
+          {options.map((o) => (
+            <label
+              key={o.id}
+              className="flex items-center gap-2 px-3 py-[6px] text-[13px] text-[var(--qz-fg-2)] hover:bg-[color-mix(in_oklab,white_5%,transparent)] transition-colors cursor-pointer select-none"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(o.id)}
+                onChange={() => toggle(o.id)}
+                className="qz-check"
+              />
+              <span style={{ fontFamily: "var(--qz-font-mono)" }}>{o.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /// Edit one front-panel port: description, admin state, MTU, speed, FEC, and
@@ -46,12 +141,22 @@ export function PortFormModal({
   const [untagged, setUntagged] = useState(
     port.untagged_vlan != null ? String(port.untagged_vlan) : "",
   );
-  const [tagged, setTagged] = useState(port.tagged_vlans.join(", "));
+  const [tagged, setTagged] = useState<number[]>(
+    [...port.tagged_vlans].sort((a, b) => a - b),
+  );
 
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const vlanIds = vlans.map((v) => v.vlan_id);
+  // Selectable speeds: what the hardware reports, or a generic ladder when the
+  // agent doesn't say — always including the port's current speed so the
+  // initial selection round-trips.
+  const speedOptions = [
+    ...new Set([
+      ...(port.supported_speeds?.length ? port.supported_speeds : FALLBACK_SPEEDS_MBPS),
+      ...(port.speed_mbps != null ? [port.speed_mbps] : []),
+    ]),
+  ].sort((a, b) => a - b);
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -61,13 +166,6 @@ export function PortFormModal({
       const m = Number(mtu);
       if (!Number.isInteger(m) || m < 68 || m > 9216) {
         setError("MTU must be a whole number between 68 and 9216.");
-        return;
-      }
-    }
-    if (speed.trim() !== "") {
-      const s = Number(speed);
-      if (!Number.isInteger(s) || s <= 0) {
-        setError("Speed must be a positive whole number of Mbps (e.g. 1000, 10000).");
         return;
       }
     }
@@ -82,23 +180,9 @@ export function PortFormModal({
       untaggedVlan = Number(untagged);
     } else if (vlanMode === "trunk") {
       untaggedVlan = untagged === "" ? null : Number(untagged);
-      const parts = tagged.split(",").map((t) => t.trim()).filter(Boolean);
-      for (const p of parts) {
-        const id = Number(p);
-        if (!Number.isInteger(id) || id < 1 || id > 4094) {
-          setError(`"${p}" is not a VLAN ID (1–4094).`);
-          return;
-        }
-        taggedVlans.push(id);
-      }
-      taggedVlans = [...new Set(taggedVlans)].sort((a, b) => a - b);
+      taggedVlans = tagged;
       if (taggedVlans.length === 0) {
         setError("A trunk needs at least one tagged VLAN.");
-        return;
-      }
-      const missing = taggedVlans.filter((id) => !vlanIds.includes(id));
-      if (missing.length > 0) {
-        setError(`VLAN${missing.length > 1 ? "s" : ""} ${missing.join(", ")} do${missing.length > 1 ? "" : "es"} not exist — create ${missing.length > 1 ? "them" : "it"} under Switching → VLANs first.`);
         return;
       }
     }
@@ -162,18 +246,22 @@ export function PortFormModal({
             />
           </div>
           <div>
-            <label className="block text-[12px] text-[var(--qz-fg-3)] mb-[6px]">Speed (Mbps)</label>
-            <input
-              type="number"
-              min={10}
+            <label className="block text-[12px] text-[var(--qz-fg-3)] mb-[6px]">Speed</label>
+            <select
               value={speed}
               onChange={(e) => setSpeed(e.target.value)}
-              placeholder="1000"
-              className={inputCls}
+              className={`${inputCls} cursor-pointer`}
               style={monoSt}
               onFocus={focusBorder}
               onBlur={blurBorder}
-            />
+            >
+              <option value="">Default</option>
+              {speedOptions.map((s) => (
+                <option key={s} value={String(s)}>
+                  {formatPortSpeed(s) ?? `${s} Mbps`}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-[12px] text-[var(--qz-fg-3)] mb-[6px]">FEC</label>
@@ -228,9 +316,9 @@ export function PortFormModal({
               >
                 {vlanMode === "trunk" && <option value="">None</option>}
                 {vlanMode === "access" && untagged === "" && <option value="">Select…</option>}
-                {vlanIds.map((id) => (
-                  <option key={id} value={String(id)}>
-                    {id}
+                {vlans.map((v) => (
+                  <option key={v.vlan_id} value={String(v.vlan_id)}>
+                    {vlanLabel(v)}
                   </option>
                 ))}
               </select>
@@ -243,18 +331,7 @@ export function PortFormModal({
             <label className="block text-[12px] text-[var(--qz-fg-3)] mb-[6px]">
               Tagged VLANs <span style={{ color: "var(--qz-danger)" }}>*</span>
             </label>
-            <input
-              value={tagged}
-              onChange={(e) => setTagged(e.target.value)}
-              placeholder="10, 20, 30"
-              className={inputCls}
-              style={monoSt}
-              onFocus={focusBorder}
-              onBlur={blurBorder}
-            />
-            <p className="text-[11.5px] text-[var(--qz-fg-4)] mt-[6px] mb-0">
-              Comma-separated VLAN IDs. Existing VLANs: {vlanIds.join(", ") || "none"}.
-            </p>
+            <VlanMultiSelect vlans={vlans} selected={tagged} onChange={setTagged} />
           </div>
         )}
 

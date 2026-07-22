@@ -142,6 +142,7 @@ export default function UsersPage() {
               searchPlaceholder="Search users…"
               emptyMessage="No user accounts configured."
               onRefresh={() => load("refresh")}
+              onRowDoubleClick={(r) => setModal({ user: r })}
               toolbar={
                 <Button kind="primary" size="sm" icon={Plus} onClick={() => setModal({})}>
                   Create user

@@ -236,6 +236,7 @@ export default function BridgePage() {
             searchPlaceholder="Search bridges…"
             emptyMessage="No bridge interfaces configured."
             onRefresh={() => load("refresh")}
+            onRowDoubleClick={(r) => openModal(r)}
             toolbar={
               <Button kind="primary" size="sm" icon={Plus} onClick={() => openModal()}>
                 Create bridge

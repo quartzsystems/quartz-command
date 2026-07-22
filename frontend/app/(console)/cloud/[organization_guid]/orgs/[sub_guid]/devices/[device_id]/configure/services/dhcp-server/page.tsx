@@ -309,6 +309,7 @@ export default function DhcpServerPage() {
                     searchPlaceholder="Search subnets…"
                     emptyMessage="No subnets configured for this server."
                     onRefresh={() => load("refresh")}
+                    onRowDoubleClick={(r) => setSubnetModal({ subnet: r })}
                     toolbar={
                       <Button kind="primary" size="sm" icon={Plus} onClick={() => setSubnetModal({})}>
                         Create subnet
@@ -338,6 +339,7 @@ export default function DhcpServerPage() {
                     searchPlaceholder="Search ranges…"
                     emptyMessage="No address ranges configured for this server."
                     onRefresh={() => load("refresh")}
+                    onRowDoubleClick={(r) => setRangeModal({ row: r })}
                     toolbar={
                       <Button kind="primary" size="sm" icon={Plus} onClick={() => setRangeModal({})}>
                         Create range
@@ -367,6 +369,7 @@ export default function DhcpServerPage() {
                     searchPlaceholder="Search static mappings…"
                     emptyMessage="No static mappings configured for this server."
                     onRefresh={() => load("refresh")}
+                    onRowDoubleClick={(r) => setMappingModal({ row: r })}
                     toolbar={
                       <Button kind="primary" size="sm" icon={Plus} onClick={() => setMappingModal({})}>
                         Create mapping
