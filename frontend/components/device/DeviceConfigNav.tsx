@@ -10,6 +10,7 @@ import { setDeviceScope } from "@/lib/device/api";
 import { DashboardProvider, useDashboard } from "@/lib/device/DashboardContext";
 import { useCloudOrg } from "@/components/CloudShell";
 import {
+  Activity,
   AppWindow,
   ArrowLeftRight,
   BookMarked,
@@ -18,7 +19,9 @@ import {
   Cast,
   ChevronDown,
   ChevronRight,
+  CloudLightning,
   Combine,
+  Copy,
   Earth,
   EthernetPort,
   Filter,
@@ -44,6 +47,7 @@ import {
   Shuffle,
   SlidersHorizontal,
   Spline,
+  Table2,
   Tags,
   Users,
   Waypoints,
@@ -179,8 +183,12 @@ const SONIC_GROUPS: NavGroup[] = [
       { id: "vlans",           label: "VLANs",           segment: "/switching/vlans",           icon: Tags },
       { id: "spanning-tree",   label: "Spanning Tree",   segment: "/switching/spanning-tree",   icon: GitBranch },
       { id: "loop-protection", label: "Loop Protection", segment: "/switching/loop-protection", icon: ShieldAlert },
+      { id: "storm-control",   label: "Storm Control",   segment: "/switching/storm-control",   icon: CloudLightning },
+      { id: "mac-table",       label: "MAC Table",       segment: "/switching/mac-table",       icon: Table2 },
+      { id: "port-mirroring",  label: "Port Mirroring",  segment: "/switching/port-mirroring",  icon: Copy },
       { id: "lldp",            label: "LLDP",            segment: "/switching/lldp",            icon: RadioTower },
       { id: "igmp-snooping",   label: "IGMP Snooping",   segment: "/switching/igmp-snooping",   icon: Cast },
+      { id: "sflow",           label: "sFlow",           segment: "/switching/sflow",           icon: Activity },
     ],
   },
   {
@@ -192,6 +200,7 @@ const SONIC_GROUPS: NavGroup[] = [
       { id: "l3-interfaces", label: "L3 Interfaces", segment: "/routing/l3-interfaces", icon: Cable },
       { id: "vrfs",          label: "VRFs",          segment: "/routing/vrfs",          icon: Boxes },
       { id: "static",        label: "Static Routes", segment: "/routing/static",        icon: Milestone },
+      { id: "dhcp-relay",    label: "DHCP Relay",    segment: "/routing/dhcp-relay",    icon: Forward },
       { id: "bgp",           label: "BGP",           segment: "/routing/bgp",           icon: Share2 },
       { id: "ospf",          label: "OSPF",          segment: "/routing/ospf",          icon: Waypoints },
       { id: "isis",          label: "IS-IS",         segment: "/routing/isis",          icon: Spline },

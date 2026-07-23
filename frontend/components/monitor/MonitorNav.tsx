@@ -15,12 +15,14 @@ import {
   LayoutGrid,
   Lock,
   LucideIcon,
+  Network,
   Route,
   ScrollText,
   Share2,
   ShieldAlert,
   ShieldCheck,
   Spline,
+  Table2,
   Waypoints,
 } from "lucide-react";
 import { useCloudOrg } from "@/components/CloudShell";
@@ -112,6 +114,29 @@ const GROUPS: NavGroup[] = [
   },
 ];
 
+/// QuartzSONiC switches have none of the firewall telemetry above; their
+/// Monitor is the Overview plus switch-side live state (the read-only MAC
+/// table — its aging/static config lives under Configure → Switching).
+const SONIC_GROUPS: NavGroup[] = [
+  {
+    id: "overview",
+    label: "Overview",
+    icon: ClipboardList,
+    segment: "",
+    exact: true,
+    children: [],
+  },
+  {
+    id: "switching",
+    label: "Switching",
+    icon: Network,
+    segment: "/switching",
+    children: [
+      { id: "mac-table", label: "MAC Table", segment: "/switching/mac-table", icon: Table2 },
+    ],
+  },
+];
+
 export function MonitorNav() {
   const pathname = (usePathname() ?? "/").replace(/\/+$/, "") || "/";
   const params = useParams<{ organization_guid: string; sub_guid?: string; device_id?: string }>();
@@ -120,13 +145,12 @@ export function MonitorNav() {
     : `/cloud/${params.organization_guid}/orgs/${params.sub_guid}/monitor`;
 
   // The dashboards / logs / routing / VPN groups are firewall telemetry — a
-  // QuartzSONiC switch has none of it, so its Monitor is the Overview alone.
+  // QuartzSONiC switch gets its own switch-side group set instead.
   const { devices } = useCloudOrg();
   const device = params.device_id
     ? (devices ?? []).find((d) => d.device_id === params.device_id)
     : undefined;
-  const groups =
-    device?.product === "quartzsonic" ? GROUPS.filter((g) => g.id === "overview") : GROUPS;
+  const groups = device?.product === "quartzsonic" ? SONIC_GROUPS : GROUPS;
 
   // Open if explicitly toggled, else default-open when one of the group's
   // children is the active route (children needn't share a path prefix).
