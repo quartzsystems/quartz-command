@@ -345,6 +345,91 @@ export function getDeviceStats(guid: string, deviceId: string): Promise<DeviceSt
   return apiFetch<DeviceStatsResponse>(`/orgs/${guid}/devices/${deviceId}/stats`);
 }
 
+/** One device's latest health gauges in the org-wide fleet view (dashboard
+ *  Fleet Health). Carries `sub_org_id` so the console scopes client-side. */
+export interface FleetDeviceStats {
+  device_id: string;
+  sub_org_id: string | null;
+  cpu_pct: number;
+  mem_pct: number;
+  disk_pct: number;
+  uptime_secs: number;
+  received_at: string;
+}
+
+/** One utilization sample in the fleet-wide history; group by `device_id` for
+ *  the per-device sparklines. Oldest first. */
+export interface FleetStatsSample {
+  device_id: string;
+  cpu_pct: number;
+  mem_pct: number;
+  disk_pct: number;
+  received_at: string;
+}
+
+export interface FleetStatsResponse {
+  stats: FleetDeviceStats[];
+  samples: FleetStatsSample[];
+}
+
+/** Latest health gauges + short utilization history for every reporting device
+ *  in the organization, in one round-trip. */
+export function getFleetStats(guid: string): Promise<FleetStatsResponse> {
+  return apiFetch<FleetStatsResponse>(`/orgs/${guid}/fleet-stats`);
+}
+
+/** One org-visible operational event (device online/offline, revocations,
+ *  clone warnings, …). `details` is free-form JSON; device events carry
+ *  `device_id`, `hostname`, and `sub_org_id` for client-side scoping. */
+export interface OrgEvent {
+  id: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+/** The org's recent operational events, newest first. */
+export function listOrgEvents(guid: string, limit = 50): Promise<OrgEvent[]> {
+  return apiFetch<OrgEvent[]>(`/orgs/${guid}/events?limit=${limit}`);
+}
+
+/** One audit-trail entry (who did what). `actor` is `user:<uuid>`,
+ *  `device:<id>`, or `system`. */
+export interface AuditEntry {
+  id: string;
+  actor: string;
+  action: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+/** The org's recent audit trail, newest first. */
+export function listAuditLog(guid: string, limit = 50): Promise<AuditEntry[]> {
+  return apiFetch<AuditEntry[]>(`/orgs/${guid}/audit?limit=${limit}`);
+}
+
+/** One minute-bucket of aggregate WAN throughput for the scope (bits/sec):
+ *  per-device averages within the bucket, summed across devices. */
+export interface TrafficPoint {
+  bucket: string;
+  rx_bps: number;
+  tx_bps: number;
+}
+
+/** Minute-bucketed WAN throughput for the org (optionally one sub-org) over
+ *  the trailing window, oldest first. Empty until agents report throughput. */
+export function getOrgTraffic(
+  guid: string,
+  opts: { sub?: string; minutes?: number } = {},
+): Promise<TrafficPoint[]> {
+  const params = new URLSearchParams();
+  if (opts.sub) params.set("sub", opts.sub);
+  if (opts.minutes) params.set("minutes", String(opts.minutes));
+  const qs = params.toString();
+  return apiFetch<TrafficPoint[]>(`/orgs/${guid}/traffic${qs ? `?${qs}` : ""}`);
+}
+
 /** Reboot a firewall (owner/admin). Travels through the device proxy to the
  *  device's local management API, which performs the reboot. Resolves once the
  *  device acknowledges the command; the control stream then drops as it

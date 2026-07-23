@@ -243,3 +243,70 @@ pub struct SubOrganization {
     pub slug: String,
     pub created_at: DateTime<Utc>,
 }
+
+/// One org-visible operational event (`org_events`), newest first from the
+/// dashboard feed endpoint. `details` is free-form JSON — device lifecycle
+/// events carry `device_id`, `hostname`, and `sub_org_id` so the console can
+/// scope the feed per sub-organization client-side.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct OrgEvent {
+    pub id: Uuid,
+    pub severity: String,
+    pub title: String,
+    pub details: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+/// One audit-trail entry (`audit_log`) for the dashboard's Recent Activity
+/// card. `actor` is `"user:<uuid>"`, `"device:<id>"`, or `"system"`.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct AuditEntry {
+    pub id: Uuid,
+    pub actor: String,
+    pub action: String,
+    pub details: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+/// One device's latest health snapshot in the org-wide fleet view — the
+/// `device_stats` gauges plus the owning sub-org, so the dashboard can scope
+/// and rank client-side without a per-device round-trip.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct FleetDeviceStats {
+    pub device_id: String,
+    pub sub_org_id: Option<Uuid>,
+    pub cpu_pct: f64,
+    pub mem_pct: f64,
+    pub disk_pct: f64,
+    pub uptime_secs: i64,
+    pub received_at: DateTime<Utc>,
+}
+
+/// One utilization sample in the fleet-wide history; the console groups by
+/// `device_id` for the Fleet Health sparklines.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct FleetStatsSample {
+    pub device_id: String,
+    pub cpu_pct: f64,
+    pub mem_pct: f64,
+    pub disk_pct: f64,
+    pub received_at: DateTime<Utc>,
+}
+
+/// The dashboard Fleet Health payload: every reporting device's latest gauges
+/// plus a short per-device utilization history, oldest first.
+#[derive(Debug, Clone, Serialize)]
+pub struct FleetStatsResponse {
+    pub stats: Vec<FleetDeviceStats>,
+    pub samples: Vec<FleetStatsSample>,
+}
+
+/// One minute-bucket of aggregate WAN throughput for a scope (bits/sec):
+/// per-device averages within the bucket, summed across the scope's devices.
+/// Drives the dashboard's Network Usage card.
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct TrafficPoint {
+    pub bucket: DateTime<Utc>,
+    pub rx_bps: i64,
+    pub tx_bps: i64,
+}

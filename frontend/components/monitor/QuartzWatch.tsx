@@ -82,7 +82,7 @@ function facetKey(f: FlowRecord, tab: TabId): string {
   return appOf(f.proto, f.dport).key;
 }
 
-interface Cell {
+export interface Cell {
   key: string;
   label: string;
   bytes: number;
@@ -114,7 +114,7 @@ function buildCells(flows: FlowRecord[], tab: TabId, names: Map<string, string>)
 
 // ── squarified treemap layout (Bruls, Huizing & van Wijk) ────────────────────
 
-interface Rect {
+export interface Rect {
   x: number;
   y: number;
   w: number;
@@ -124,8 +124,9 @@ interface Rect {
 }
 
 /** Lay `cells` (each with a positive `value`) out as a squarified treemap in a
- *  W×H box, keeping cells as close to square as possible so labels fit. */
-function squarify(cells: { cell: Cell; value: number }[], W: number, H: number): Rect[] {
+ *  W×H box, keeping cells as close to square as possible so labels fit.
+ *  Exported for the dashboard's compact Top Talkers card. */
+export function squarify(cells: { cell: Cell; value: number }[], W: number, H: number): Rect[] {
   const items = cells.filter((c) => c.value > 0);
   const total = items.reduce((s, c) => s + c.value, 0);
   if (total <= 0 || W <= 0 || H <= 0) return [];

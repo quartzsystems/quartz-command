@@ -202,6 +202,10 @@ async fn store_security_telemetry(state: &GrpcState, device_id: &str, t: &Securi
 /// At the ~30 s device-stats cadence this is a few hundred samples per device.
 const STATS_SAMPLE_RETENTION: &str = "2 hours";
 
+/// How long WAN-throughput samples are retained for the dashboard's Network
+/// Usage card (its widest window is 24 h).
+const TRAFFIC_SAMPLE_RETENTION: &str = "24 hours";
+
 /// Store a device health & stats snapshot: upsert the latest row (one per
 /// device) and append a utilization sample to the rolling history, pruning the
 /// history to `STATS_SAMPLE_RETENTION`. Counters are u64 on the wire but always
@@ -280,6 +284,33 @@ async fn store_device_stats(state: &GrpcState, device_id: &str, s: &DeviceStats)
     .bind(device_id)
     .execute(&state.db)
     .await;
+
+    // Append a WAN-throughput sample when the agent measures one. Older builds
+    // send zero for both fields, which is indistinguishable from "not measured"
+    // — skip those so the Network Usage card shows "no data" instead of a
+    // false flatline.
+    if s.rx_bps > 0 || s.tx_bps > 0 {
+        let res = sqlx::query(
+            "INSERT INTO device_traffic_samples (device_id, rx_bps, tx_bps) VALUES ($1, $2, $3)",
+        )
+        .bind(device_id)
+        .bind(i64c(s.rx_bps))
+        .bind(i64c(s.tx_bps))
+        .execute(&state.db)
+        .await;
+        match res {
+            Err(e) => tracing::debug!(device = %device_id, "appending traffic sample: {e}"),
+            Ok(_) => {
+                let _ = sqlx::query(&format!(
+                    "DELETE FROM device_traffic_samples \
+                     WHERE device_id = $1 AND received_at < now() - interval '{TRAFFIC_SAMPLE_RETENTION}'"
+                ))
+                .bind(device_id)
+                .execute(&state.db)
+                .await;
+            }
+        }
+    }
 }
 
 /// Extract and validate the mTLS device identity from a request.
@@ -367,9 +398,35 @@ impl DeviceService for DeviceGrpc {
         .await
         .map_err(internal)?;
 
+        // Raise the online event with enough context (hostname, sub-org) for
+        // the dashboard's event feed to scope per sub-organization. Best-effort
+        // like all event writes.
+        let meta: Option<(Option<String>, Option<uuid::Uuid>)> =
+            sqlx::query_as("SELECT hostname, sub_org_id FROM devices WHERE device_id = $1")
+                .bind(&ident.device_id)
+                .fetch_optional(&self.state.db)
+                .await
+                .ok()
+                .flatten();
+        let (hostname, sub_org_id) = meta.unwrap_or((None, None));
+        let event_details = json!({
+            "device_id": ident.device_id,
+            "hostname": hostname,
+            "sub_org_id": sub_org_id,
+        });
+        audit::raise_event(
+            &self.state.db,
+            ident.org_id,
+            "info",
+            "Device online",
+            event_details.clone(),
+        )
+        .await;
+
         // Forwarder: registry messages → gRPC response stream.
         let state = self.state.clone();
         let device_id = ident.device_id.clone();
+        let org_id = ident.org_id;
         tokio::spawn(async move {
             let mut rx = rx;
             loop {
@@ -417,6 +474,19 @@ impl DeviceService for DeviceGrpc {
             }
             state.registry.deregister(&device_id, epoch);
             tracing::info!(device = %device_id, "control stream disconnected");
+            // Only raise the offline event when the device is actually gone —
+            // a stream replaced by a newer connection is a reconnect, not an
+            // outage (deregister is epoch-guarded for the same reason).
+            if !state.registry.is_online(&device_id) {
+                audit::raise_event(
+                    &state.db,
+                    org_id,
+                    "warning",
+                    "Device offline",
+                    event_details,
+                )
+                .await;
+            }
         });
 
         Ok(Response::new(ReceiverStream::new(out_rx)))

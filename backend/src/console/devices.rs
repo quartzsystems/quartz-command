@@ -1,7 +1,7 @@
 //! Device endpoints for the cloud console's Inventory section. Org-scoped,
 //! behind `auth::require_auth`; revoking a device requires owner/admin.
 
-use axum::{extract::Path, extract::State, Extension, Json};
+use axum::{extract::Path, extract::Query, extract::State, Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
@@ -11,7 +11,10 @@ use crate::{
     audit,
     console::organizations::{member_org, require_folder, require_sub_org},
     error::{AppError, Result},
-    models::{Device, DeviceSecurityTelemetry, DeviceStats, DeviceStatsResponse, DeviceStatsSample},
+    models::{
+        Device, DeviceSecurityTelemetry, DeviceStats, DeviceStatsResponse, DeviceStatsSample,
+        FleetDeviceStats, FleetStatsResponse, FleetStatsSample, TrafficPoint,
+    },
     security::Claims,
     AppState,
 };
@@ -133,6 +136,94 @@ pub async fn device_stats(
     Ok(Json(DeviceStatsResponse { latest, samples }))
 }
 
+/// GET /api/orgs/:organization_guid/fleet-stats — any member. The latest
+/// health gauges for every reporting device in the org plus a short per-device
+/// utilization history (oldest first), powering the dashboard's Fleet Health
+/// card without a per-device round-trip. Rows carry `sub_org_id` so the
+/// console scopes per sub-organization client-side, like security-telemetry.
+pub async fn fleet_stats(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(organization_guid): Path<Uuid>,
+) -> Result<Json<FleetStatsResponse>> {
+    let uid = caller_id(&claims)?;
+    member_org(&state, organization_guid, uid).await?;
+
+    let stats = sqlx::query_as::<_, FleetDeviceStats>(
+        "SELECT t.device_id, d.sub_org_id, t.cpu_pct, t.mem_pct, t.disk_pct, \
+                t.uptime_secs, t.received_at \
+         FROM device_stats t \
+         JOIN devices d ON d.device_id = t.device_id \
+         WHERE d.org_id = $1",
+    )
+    .bind(organization_guid)
+    .fetch_all(&state.db)
+    .await?;
+
+    // The newest 48 samples per device (~24 min at the 30 s cadence) — enough
+    // for a card-sized sparkline. Oldest first so the console plots
+    // left-to-right without re-sorting.
+    let samples = sqlx::query_as::<_, FleetStatsSample>(
+        "SELECT device_id, cpu_pct, mem_pct, disk_pct, received_at FROM ( \
+            SELECT s.device_id, s.cpu_pct, s.mem_pct, s.disk_pct, s.received_at, \
+                   row_number() OVER (PARTITION BY s.device_id ORDER BY s.received_at DESC) AS rn \
+            FROM device_stats_samples s \
+            JOIN devices d ON d.device_id = s.device_id \
+            WHERE d.org_id = $1 \
+         ) ranked WHERE rn <= 48 ORDER BY received_at",
+    )
+    .bind(organization_guid)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(FleetStatsResponse { stats, samples }))
+}
+
+#[derive(Deserialize)]
+pub struct TrafficQuery {
+    /// Scope to one sub-organization (must belong to the org).
+    pub sub: Option<Uuid>,
+    /// Window in minutes; default 60, capped to the 24 h sample retention.
+    pub minutes: Option<i64>,
+}
+
+/// GET /api/orgs/:organization_guid/traffic — any member. Minute-bucketed WAN
+/// throughput for the scope (bits/sec): each device's samples are averaged
+/// within the bucket, then summed across devices, oldest first. Devices whose
+/// agents don't report throughput simply contribute nothing.
+pub async fn org_traffic(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(organization_guid): Path<Uuid>,
+    Query(q): Query<TrafficQuery>,
+) -> Result<Json<Vec<TrafficPoint>>> {
+    let uid = caller_id(&claims)?;
+    member_org(&state, organization_guid, uid).await?;
+    if let Some(sub) = q.sub {
+        require_sub_org(&state, organization_guid, sub).await?;
+    }
+    let minutes = i32::try_from(q.minutes.unwrap_or(60).clamp(5, 24 * 60)).unwrap_or(60);
+
+    let rows = sqlx::query_as::<_, TrafficPoint>(
+        "SELECT bucket, sum(rx)::bigint AS rx_bps, sum(tx)::bigint AS tx_bps FROM ( \
+            SELECT s.device_id, date_trunc('minute', s.received_at) AS bucket, \
+                   avg(s.rx_bps) AS rx, avg(s.tx_bps) AS tx \
+            FROM device_traffic_samples s \
+            JOIN devices d ON d.device_id = s.device_id \
+            WHERE d.org_id = $1 AND ($2::uuid IS NULL OR d.sub_org_id = $2) \
+              AND s.received_at > now() - make_interval(mins => $3) \
+            GROUP BY s.device_id, date_trunc('minute', s.received_at) \
+         ) per_device GROUP BY bucket ORDER BY bucket",
+    )
+    .bind(organization_guid)
+    .bind(q.sub)
+    .bind(minutes)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
 /// POST /api/orgs/:organization_guid/devices/:device_id/revoke — owner/admin.
 /// A revoked device can no longer renew its certificate; re-enrollment with a
 /// fresh token (same key) is allowed and re-adopts it.
@@ -164,6 +255,14 @@ pub async fn revoke(
         Some(organization_guid),
         &format!("user:{uid}"),
         "device.revoked",
+        json!({ "device_id": device_id }),
+    )
+    .await;
+    audit::raise_event(
+        &state.db,
+        organization_guid,
+        "warning",
+        "Device revoked",
         json!({ "device_id": device_id }),
     )
     .await;

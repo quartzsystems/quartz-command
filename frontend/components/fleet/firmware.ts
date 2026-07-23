@@ -3,18 +3,22 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Device, Product } from "@/lib/api";
 
-// The latest QuartzFire release, read straight from GitHub. The repo is public
-// and api.github.com serves CORS for public repos, so the browser can fetch it
-// directly. Cached module-side with a short TTL so navigating between the
-// Dashboard and Monitor views doesn't refetch on every mount.
-const GITHUB_LATEST =
-  "https://api.github.com/repos/quartzsystems/quartz-fire/releases/latest";
+// The latest release per product line, read straight from GitHub. The repos
+// are public and api.github.com serves CORS for public repos, so the browser
+// can fetch them directly. Cached module-side with a short TTL so navigating
+// between the Dashboard and Monitor views doesn't refetch on every mount. A
+// missing/private repo simply yields null and the cards degrade to "Latest
+// release unavailable".
+const GITHUB_LATEST: Record<Product, string> = {
+  quartzfire: "https://api.github.com/repos/quartzsystems/quartz-fire/releases/latest",
+  quartzsonic: "https://api.github.com/repos/quartzsystems/quartz-sonic/releases/latest",
+};
 const FIRMWARE_TTL_MS = 10 * 60 * 1000;
-let firmwareCache: { version: string | null; at: number } | null = null;
+const firmwareCache = new Map<Product, { version: string | null; at: number }>();
 
-async function fetchLatestFirmware(): Promise<string | null> {
+async function fetchLatestFirmware(product: Product): Promise<string | null> {
   try {
-    const res = await fetch(GITHUB_LATEST, {
+    const res = await fetch(GITHUB_LATEST[product], {
       headers: { Accept: "application/vnd.github+json" },
     });
     if (!res.ok) return null;
@@ -74,23 +78,30 @@ export function upgradeableCount(devices: Device[], latest: Version | null): num
 }
 
 /// The latest release tag plus its parsed form, and a `reload` for the refresh
-/// controls. Fetches once (respecting the module cache) on mount.
-export function useLatestFirmware(): {
+/// controls. Fetches once (respecting the module cache) on mount. Defaults to
+/// QuartzFire for the firewall-only call sites.
+export function useLatestFirmware(product: Product = "quartzfire"): {
   latest: string | null;
   latestVer: Version | null;
   reload: (force?: boolean) => void;
 } {
-  const [latest, setLatest] = useState<string | null>(firmwareCache?.version ?? null);
+  const [latest, setLatest] = useState<string | null>(
+    firmwareCache.get(product)?.version ?? null,
+  );
 
-  const reload = useCallback(async (force = false) => {
-    if (!force && firmwareCache && Date.now() - firmwareCache.at < FIRMWARE_TTL_MS) {
-      setLatest(firmwareCache.version);
-      return;
-    }
-    const version = await fetchLatestFirmware();
-    firmwareCache = { version, at: Date.now() };
-    setLatest(version);
-  }, []);
+  const reload = useCallback(
+    async (force = false) => {
+      const cached = firmwareCache.get(product);
+      if (!force && cached && Date.now() - cached.at < FIRMWARE_TTL_MS) {
+        setLatest(cached.version);
+        return;
+      }
+      const version = await fetchLatestFirmware(product);
+      firmwareCache.set(product, { version, at: Date.now() });
+      setLatest(version);
+    },
+    [product],
+  );
 
   useEffect(() => {
     reload();

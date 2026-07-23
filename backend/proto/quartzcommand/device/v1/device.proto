@@ -192,6 +192,14 @@ message DeviceStats {
   uint64 mem_total_bytes = 10;
   uint64 disk_used_bytes = 11;
   uint64 disk_total_bytes = 12;
+
+  // WAN/uplink throughput averaged over the report interval, bits per second,
+  // summed across the device's WAN-facing interfaces (a switch reports its
+  // uplink). Zero for both when the agent doesn't measure throughput (older
+  // builds) — the controller then stores no traffic sample, so the console's
+  // Network Usage card simply has no data rather than a false flatline.
+  uint64 rx_bps = 13;
+  uint64 tx_bps = 14;
 }
 
 // One firewall policy/rule's cumulative traffic counters.

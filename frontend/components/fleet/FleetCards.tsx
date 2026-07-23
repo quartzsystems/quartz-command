@@ -8,7 +8,8 @@ import { parseVersion, upgradeableCount, type Version } from "@/components/fleet
 
 /// Optional "View All" link on a card header — hidden when no handler is given
 /// (e.g. on the Monitor page you're already where "View All" would take you).
-function CardHeader({ title, onViewAll }: { title: string; onViewAll?: () => void }) {
+/// Shared by the dashboard widget cards (DashboardCards.tsx and friends).
+export function CardHeader({ title, onViewAll }: { title: string; onViewAll?: () => void }) {
   return (
     <div className="flex items-center justify-between mb-4">
       <h2 className="text-[14px] font-semibold text-[var(--qz-fg-1)] m-0">{title}</h2>
@@ -164,17 +165,21 @@ export function ManagedSwitchesStat({
   );
 }
 
-/// "QuartzFire Firewall Status" donut + legend — live Online vs Offline over
-/// the active fleet. Connectivity is the gateway's real-time signal
+/// Product status donut + legend — live Online vs Offline over the active
+/// fleet of one product line. Connectivity is the gateway's real-time signal
 /// (`device.connected`); revoked (decommissioned) devices are excluded.
-export function FirewallStatusCard({
+function ProductStatusCard({
   devices,
+  product,
+  title,
   onViewAll,
 }: {
   devices: Device[];
+  product: "quartzfire" | "quartzsonic";
+  title: string;
   onViewAll?: () => void;
 }) {
-  const active = devices.filter((d) => d.product === "quartzfire" && d.state !== "revoked");
+  const active = devices.filter((d) => d.product === product && d.state !== "revoked");
   const online = active.filter((d) => d.connected).length;
   const segments: StatusSegment[] = [
     { label: "Online", value: online, color: "var(--qz-green-500)" },
@@ -182,7 +187,7 @@ export function FirewallStatusCard({
   ];
   return (
     <section className="surface p-5">
-      <CardHeader title="QuartzFire Firewall Status" onViewAll={onViewAll} />
+      <CardHeader title={title} onViewAll={onViewAll} />
       <div className="flex items-center gap-6">
         <StatusDonut segments={segments} total={active.length} />
         <ul className="flex flex-col gap-[10px] m-0 p-0 list-none flex-1 min-w-0">
@@ -199,23 +204,39 @@ export function FirewallStatusCard({
   );
 }
 
-/// "QuartzFire Firewall Firmware Upgrades" — devices behind the latest release.
-export function FirmwareUpgradesCard({
+/// "QuartzFire Firewall Status" — the firewall fleet's donut.
+export function FirewallStatusCard(props: { devices: Device[]; onViewAll?: () => void }) {
+  return <ProductStatusCard {...props} product="quartzfire" title="QuartzFire Firewall Status" />;
+}
+
+/// "QuartzSONiC Switch Status" — the switch-fleet counterpart.
+export function SwitchStatusCard(props: { devices: Device[]; onViewAll?: () => void }) {
+  return <ProductStatusCard {...props} product="quartzsonic" title="QuartzSONiC Switch Status" />;
+}
+
+/// Product firmware-upgrades card — devices behind the latest release.
+function ProductFirmwareCard({
   devices,
+  product,
+  title,
+  noun,
   latest,
   latestVer,
   onViewAll,
 }: {
   devices: Device[];
+  product: "quartzfire" | "quartzsonic";
+  title: string;
+  noun: string;
   latest: string | null;
   latestVer: Version | null;
   onViewAll?: () => void;
 }) {
-  const managed = devices.filter((d) => d.product === "quartzfire" && d.state !== "revoked");
+  const managed = devices.filter((d) => d.product === product && d.state !== "revoked");
   const upgradeable = upgradeableCount(managed, latestVer);
   return (
     <section className="surface p-5">
-      <CardHeader title="QuartzFire Firewall Firmware Upgrades" onViewAll={onViewAll} />
+      <CardHeader title={title} onViewAll={onViewAll} />
       <div className="flex items-center gap-3 mb-1">
         <ArrowUpCircle size={22} style={{ color: "var(--qz-accent)" }} />
         <span
@@ -231,7 +252,7 @@ export function FirmwareUpgradesCard({
           : `Devices ready to upgrade${parseVersion(latest) ? ` to ${latest}` : ""}`}
       </p>
       <div className="flex items-center justify-between text-[12.5px] mb-[6px]">
-        <span style={{ color: "var(--qz-fg-2)" }}>Firewalls</span>
+        <span style={{ color: "var(--qz-fg-2)" }}>{noun}</span>
         <span className="tabular-nums" style={{ color: "var(--qz-fg-3)" }}>
           {upgradeable} of {managed.length}
         </span>
@@ -250,5 +271,39 @@ export function FirmwareUpgradesCard({
         />
       </div>
     </section>
+  );
+}
+
+/// "QuartzFire Firewall Firmware Upgrades" — firewalls behind the latest release.
+export function FirmwareUpgradesCard(props: {
+  devices: Device[];
+  latest: string | null;
+  latestVer: Version | null;
+  onViewAll?: () => void;
+}) {
+  return (
+    <ProductFirmwareCard
+      {...props}
+      product="quartzfire"
+      title="QuartzFire Firewall Firmware Upgrades"
+      noun="Firewalls"
+    />
+  );
+}
+
+/// "QuartzSONiC Switch Firmware Upgrades" — the switch-fleet counterpart.
+export function SwitchFirmwareUpgradesCard(props: {
+  devices: Device[];
+  latest: string | null;
+  latestVer: Version | null;
+  onViewAll?: () => void;
+}) {
+  return (
+    <ProductFirmwareCard
+      {...props}
+      product="quartzsonic"
+      title="QuartzSONiC Switch Firmware Upgrades"
+      noun="Switches"
+    />
   );
 }

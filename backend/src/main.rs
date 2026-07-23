@@ -147,6 +147,22 @@ async fn main() -> Result<()> {
             get(console::devices::device_stats),
         )
         .route(
+            "/api/orgs/:organization_guid/fleet-stats",
+            get(console::devices::fleet_stats),
+        )
+        .route(
+            "/api/orgs/:organization_guid/traffic",
+            get(console::devices::org_traffic),
+        )
+        .route(
+            "/api/orgs/:organization_guid/events",
+            get(console::events::list_events),
+        )
+        .route(
+            "/api/orgs/:organization_guid/audit",
+            get(console::events::list_audit),
+        )
+        .route(
             "/api/orgs/:organization_guid/devices/:device_id/revoke",
             post(console::devices::revoke),
         )
