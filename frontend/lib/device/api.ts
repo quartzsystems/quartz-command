@@ -31,16 +31,16 @@ export function setDeviceScope(orgGuid: string, deviceId: string): void {
 
 /// Send one proxied call. The console session cookie authenticates us to the
 /// cloud; the device authenticates the replayed call locally itself.
-async function proxyRaw(
+async function proxyRawTo(
+  target: { orgGuid: string; deviceId: string },
   method: string,
   path: string,
   contentType?: string,
   body?: string,
 ): Promise<Response> {
-  if (!scope) throw new ApiError("No device selected.", 0);
   let res: Response;
   try {
-    res = await fetch(`/api/orgs/${scope.orgGuid}/devices/${scope.deviceId}/proxy`, {
+    res = await fetch(`/api/orgs/${target.orgGuid}/devices/${target.deviceId}/proxy`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -57,6 +57,16 @@ async function proxyRaw(
     throw new ApiError("Session expired. Please sign in again.", 401);
   }
   return res;
+}
+
+async function proxyRaw(
+  method: string,
+  path: string,
+  contentType?: string,
+  body?: string,
+): Promise<Response> {
+  if (!scope) throw new ApiError("No device selected.", 0);
+  return proxyRawTo(scope, method, path, contentType, body);
 }
 
 /// fetch()-shaped helper for the few call sites that need the raw Response
@@ -80,6 +90,36 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     try {
       const body = await res.json();
       if (body?.error) message = body.error;
+    } catch {}
+    throw new ApiError(message, res.status);
+  }
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
+/// apiFetch against an explicitly named device, ignoring the module-scoped
+/// one. Used by pages that talk to several devices at once — the sub-org
+/// High Availability section configures both switches of an MCLAG/VRRP pair
+/// from a single page, where no single device scope exists.
+export async function deviceApiFetch<T>(
+  orgGuid: string,
+  deviceId: string,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const body = typeof init?.body === "string" ? init.body : undefined;
+  const res = await proxyRawTo(
+    { orgGuid, deviceId },
+    init?.method ?? "GET",
+    `${API}${path}`,
+    body != null ? "application/json" : undefined,
+    body,
+  );
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`;
+    try {
+      const parsed = await res.json();
+      if (parsed?.error) message = parsed.error;
     } catch {}
     throw new ApiError(message, res.status);
   }

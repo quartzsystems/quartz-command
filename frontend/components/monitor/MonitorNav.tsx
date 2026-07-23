@@ -9,8 +9,12 @@ import {
   ClipboardList,
   ChevronDown,
   ChevronRight,
+  Combine,
+  CopyPlus,
   Filter,
   Globe,
+  HeartPulse,
+  Layers,
   LayoutDashboard,
   LayoutGrid,
   Lock,
@@ -115,8 +119,8 @@ const GROUPS: NavGroup[] = [
 ];
 
 /// QuartzSONiC switches have none of the firewall telemetry above; their
-/// Monitor is the Overview plus switch-side live state (the read-only MAC
-/// table — its aging/static config lives under Configure → Switching).
+/// Monitor is the Overview plus switch-side live state, read-only — the
+/// matching configuration lives under Configure (Switching / Routing).
 const SONIC_GROUPS: NavGroup[] = [
   {
     id: "overview",
@@ -135,7 +139,32 @@ const SONIC_GROUPS: NavGroup[] = [
       { id: "mac-table", label: "MAC Table", segment: "/switching/mac-table", icon: Table2 },
     ],
   },
+  {
+    id: "routing",
+    label: "Routing",
+    icon: Route,
+    segment: "/routing",
+    children: [
+      { id: "bfd",        label: "BFD",          segment: "/routing/bfd",        icon: HeartPulse },
+      { id: "vxlan-evpn", label: "VXLAN / EVPN", segment: "/routing/vxlan-evpn", icon: Layers },
+    ],
+  },
 ];
+
+/// Sub-organization-only group: MCLAG/VRRP span a pair of switches, so their
+/// live state aggregates at the sub-org scope (the pages fan out across the
+/// sub-org's switches) — configuration lives in the sub-org Configure
+/// section's High Availability group.
+const SUB_ORG_HA_GROUP: NavGroup = {
+  id: "high-availability",
+  label: "High Availability",
+  icon: CopyPlus,
+  segment: "/high-availability",
+  children: [
+    { id: "mclag", label: "MCLAG", segment: "/high-availability/mclag", icon: Combine },
+    { id: "vrrp",  label: "VRRP",  segment: "/high-availability/vrrp",  icon: Network },
+  ],
+};
 
 export function MonitorNav() {
   const pathname = (usePathname() ?? "/").replace(/\/+$/, "") || "/";
@@ -145,12 +174,19 @@ export function MonitorNav() {
     : `/cloud/${params.organization_guid}/orgs/${params.sub_guid}/monitor`;
 
   // The dashboards / logs / routing / VPN groups are firewall telemetry — a
-  // QuartzSONiC switch gets its own switch-side group set instead.
+  // QuartzSONiC switch gets its own switch-side group set instead. At the
+  // sub-org scope (no device routed) the aggregate views also carry the
+  // switch pairs' High Availability state.
   const { devices } = useCloudOrg();
   const device = params.device_id
     ? (devices ?? []).find((d) => d.device_id === params.device_id)
     : undefined;
-  const groups = device?.product === "quartzsonic" ? SONIC_GROUPS : GROUPS;
+  const groups =
+    device?.product === "quartzsonic"
+      ? SONIC_GROUPS
+      : params.device_id
+        ? GROUPS
+        : [...GROUPS, SUB_ORG_HA_GROUP];
 
   // Open if explicitly toggled, else default-open when one of the group's
   // children is the active route (children needn't share a path prefix).
