@@ -33,12 +33,22 @@ interface NavGroup {
   exact?: boolean;
 }
 
-/// Sub-organization Configure navigation. Unlike the device Configure nav,
-/// everything here spans multiple devices: High Availability features
-/// (MCLAG, VRRP) are defined across a *pair* of switches, so they can only
-/// be configured at this scope — a single device's Configure section has no
-/// second switch to pair with.
-const GROUPS: NavGroup[] = [
+/// A product divider between nav groups (rendered as an uppercase section
+/// label, matching the Inventory nav's QuartzFire / QuartzSONiC split).
+interface NavHeading {
+  heading: string;
+}
+
+type NavEntry = NavGroup | NavHeading;
+
+/// Sub-organization Configure navigation, split per product like the
+/// Inventory nav. Unlike the device Configure nav, everything here spans
+/// multiple devices: High Availability features (MCLAG, VRRP) are defined
+/// across a *pair* of switches, so they can only be configured at this
+/// scope — a single device's Configure section has no second switch to pair
+/// with. The QuartzFire section has no fleet-level items yet; its heading
+/// stakes out where they will land.
+const ENTRIES: NavEntry[] = [
   {
     id: "overview",
     label: "Overview",
@@ -47,6 +57,8 @@ const GROUPS: NavGroup[] = [
     exact: true,
     children: [],
   },
+  { heading: "QuartzFire" },
+  { heading: "QuartzSONiC" },
   {
     id: "high-availability",
     label: "High Availability",
@@ -79,7 +91,24 @@ export function SubOrgConfigureNav() {
   return (
     <div className="flex-shrink-0 w-[240px]" style={{ borderRight: "1px solid var(--qz-border)" }}>
       <nav className="sticky top-0 px-3 pt-6 flex flex-col gap-[2px]">
-        {GROUPS.map((group) => {
+        {ENTRIES.map((entry) => {
+          if ("heading" in entry) {
+            return (
+              <span
+                key={entry.heading}
+                className="text-[11px] font-semibold uppercase px-[2px] mt-4 mb-1"
+                style={{
+                  color: "var(--qz-fg-3)",
+                  fontFamily: "var(--qz-font-mono)",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                {entry.heading}
+              </span>
+            );
+          }
+
+          const group = entry;
           const Icon = group.icon;
 
           if (group.children.length === 0) {

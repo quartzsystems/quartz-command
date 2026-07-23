@@ -177,6 +177,31 @@ body {
 .qz-table tbody tr.selected td { background: var(--qz-accent-soft); }
 .qz-table td.mono { font-family: var(--qz-font-mono); color: var(--qz-fg-1); }
 
+/* Trailing actions column pinned to the right edge of the scroll box, so a
+   horizontally-overflowing table can never push the row controls out of view.
+   Row cells are transparent over the page background, so the pinned cell
+   needs its own opaque background (and opaque hover/selected equivalents) or
+   the columns scrolling beneath it would show through. */
+.qz-table th.qz-actions-sticky { position: sticky; right: 0; z-index: 2; }
+.qz-table td.qz-actions-sticky {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--qz-bg);
+}
+.qz-table tbody tr:hover td.qz-actions-sticky {
+  background: color-mix(in oklab, white 4%, var(--qz-surface));
+}
+.qz-table tbody tr.selected td.qz-actions-sticky {
+  background: color-mix(in oklab, var(--qz-green-500) 14%, var(--qz-bg));
+}
+/* Only cast the "content continues beneath" shadow when the table actually
+   overflows its box (the qz-overflowing class is toggled by DataTable). */
+.qz-table.qz-overflowing th.qz-actions-sticky,
+.qz-table.qz-overflowing td.qz-actions-sticky {
+  box-shadow: -10px 0 10px -8px rgba(0, 0, 0, 0.55);
+}
+
 /* Draggable column-width handle at a header-cell boundary. The ::after line is
    the always-visible "|" affordance; the span itself is a wider hit target. */
 .qz-col-resize {

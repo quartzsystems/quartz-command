@@ -189,6 +189,21 @@ export function DataTable<T>({
     return () => ro.disconnect();
   }, [seeded, visibleCols, actions, actionsWidth]);
 
+  // Track whether the table is wider than its scroll box — the pinned actions
+  // column only casts its "columns continue beneath" shadow while overlapping.
+  const [overflowingX, setOverflowingX] = useState(false);
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    const table = tableRef.current;
+    if (!wrap || !table) return;
+    const check = () => setOverflowingX(wrap.scrollWidth > wrap.clientWidth + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(wrap);
+    ro.observe(table);
+    return () => ro.disconnect();
+  }, []);
+
   const resetLayout = () => {
     setOrder(defaultOrder);
     setHidden(new Set());
@@ -558,7 +573,7 @@ export function DataTable<T>({
       >
         <table
           ref={tableRef}
-          className="qz-table"
+          className={"qz-table" + (overflowingX ? " qz-overflowing" : "")}
           style={{ tableLayout: seeded ? "fixed" : "auto", width: "100%" }}
         >
           <colgroup>
@@ -644,7 +659,11 @@ export function DataTable<T>({
                   )}
                 </th>
               ))}
-              {actions && <th style={{ width: actionsWidth }} className="text-right">Actions</th>}
+              {actions && (
+                <th style={{ width: actionsWidth }} className="text-right qz-actions-sticky">
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -693,7 +712,7 @@ export function DataTable<T>({
                         onMouseDown={(e) => e.stopPropagation()}
                         onDoubleClick={(e) => e.stopPropagation()}
                         style={{ cursor: "default" }}
-                        className="text-right"
+                        className="text-right qz-actions-sticky"
                       >
                         {actions(row)}
                       </td>

@@ -54,20 +54,29 @@ interface NavGroup {
   exact?: boolean;
 }
 
+/// A product divider between nav groups (rendered as an uppercase section
+/// label, matching the Inventory nav's QuartzFire / QuartzSONiC split).
+interface NavHeading {
+  heading: string;
+}
+
+type NavEntry = NavGroup | NavHeading;
+
+const OVERVIEW_GROUP: NavGroup = {
+  id: "overview",
+  label: "Overview",
+  icon: ClipboardList,
+  segment: "",
+  exact: true,
+  children: [],
+};
+
 /// Monitor sub-navigation, grouped into Dashboard / Logs / Routing / VPN. The
 /// same nav serves both the sub-organization Monitor (aggregate across the
 /// sub-org's firewalls) and a single device's Monitor (that one firewall) —
 /// the base path is derived from the route so every link stays in scope.
 /// Routing and VPN mirror the QuartzFire local UI's live Status panels.
-const GROUPS: NavGroup[] = [
-  {
-    id: "overview",
-    label: "Overview",
-    icon: ClipboardList,
-    segment: "",
-    exact: true,
-    children: [],
-  },
+const FIRE_GROUPS: NavGroup[] = [
   {
     id: "dashboards",
     label: "Dashboards",
@@ -123,14 +132,6 @@ const GROUPS: NavGroup[] = [
 /// matching configuration lives under Configure (Switching / Routing).
 const SONIC_GROUPS: NavGroup[] = [
   {
-    id: "overview",
-    label: "Overview",
-    icon: ClipboardList,
-    segment: "",
-    exact: true,
-    children: [],
-  },
-  {
     id: "switching",
     label: "Switching",
     icon: Network,
@@ -175,18 +176,25 @@ export function MonitorNav() {
 
   // The dashboards / logs / routing / VPN groups are firewall telemetry — a
   // QuartzSONiC switch gets its own switch-side group set instead. At the
-  // sub-org scope (no device routed) the aggregate views also carry the
-  // switch pairs' High Availability state.
+  // sub-org scope (no device routed) the aggregate views span both products,
+  // so a QUARTZFIRE / QUARTZSONIC heading splits the nav per product (the
+  // switch pairs' High Availability state is the SONiC side today).
   const { devices } = useCloudOrg();
   const device = params.device_id
     ? (devices ?? []).find((d) => d.device_id === params.device_id)
     : undefined;
-  const groups =
+  const entries: NavEntry[] =
     device?.product === "quartzsonic"
-      ? SONIC_GROUPS
+      ? [OVERVIEW_GROUP, ...SONIC_GROUPS]
       : params.device_id
-        ? GROUPS
-        : [...GROUPS, SUB_ORG_HA_GROUP];
+        ? [OVERVIEW_GROUP, ...FIRE_GROUPS]
+        : [
+            OVERVIEW_GROUP,
+            { heading: "QuartzFire" },
+            ...FIRE_GROUPS,
+            { heading: "QuartzSONiC" },
+            SUB_ORG_HA_GROUP,
+          ];
 
   // Open if explicitly toggled, else default-open when one of the group's
   // children is the active route (children needn't share a path prefix).
@@ -204,7 +212,24 @@ export function MonitorNav() {
   return (
     <div className="flex-shrink-0 w-[240px]" style={{ borderRight: "1px solid var(--qz-border)" }}>
       <nav className="sticky top-0 px-3 pt-6 flex flex-col gap-[2px]">
-        {groups.map((group) => {
+        {entries.map((entry) => {
+          if ("heading" in entry) {
+            return (
+              <span
+                key={entry.heading}
+                className="text-[11px] font-semibold uppercase px-[2px] mt-4 mb-1"
+                style={{
+                  color: "var(--qz-fg-3)",
+                  fontFamily: "var(--qz-font-mono)",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                {entry.heading}
+              </span>
+            );
+          }
+
+          const group = entry;
           const Icon = group.icon;
 
           // A childless group is a direct top-level link (the Overview page).
